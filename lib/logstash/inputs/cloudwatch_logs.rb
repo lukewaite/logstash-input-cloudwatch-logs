@@ -34,7 +34,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     require "digest/md5"
     require "aws-sdk"
 
-    @logger.info("Registering cloudwatch-logs input", :log_group => @log_group)
+    @logger.info("Registering cloudwatch_logs input", :log_group => @log_group)
 
     Aws::ConfigService::Client.new(aws_options_hash)
 
