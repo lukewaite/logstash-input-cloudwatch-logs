@@ -9,6 +9,11 @@ require "stud/interval"
 require "stud/temporary"
 
 # Stream events from ClougWatch Logs streams.
+#
+# Primarily designed to pull logs from Lambda's which are logging to
+# CloudWatch Logs. Specify a log group, and this plugin will scan
+# all log streams in that group, and pull in any new log events.
+#
 class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   include LogStash::PluginMixins::AwsConfig::V2
 
@@ -16,6 +21,8 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
 
   default :codec, "plain"
 
+  # Log group to pull logs from for this plugin. Will pull in all
+  # streams inside of this log group.
   config :log_group, :validate => :string, :required => true
 
   # Where to write the since database (keeps track of the date
