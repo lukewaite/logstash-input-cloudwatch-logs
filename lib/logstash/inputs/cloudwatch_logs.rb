@@ -59,12 +59,26 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
 
   # def list_new_streams
   public
-  def list_new_streams(token = nil, objects = [])
+  def list_new_streams()
+    log_groups = @cloudwatch.describe_log_groups(log_group_name_prefix: @log_group)
+    groups = log_groups.log_groups.map {|n| n.log_group_name}
+    objects = []
+    for log_group in groups
+      objects.concat(list_new_streams_for_log_group(log_group))
+    end
+    objects
+  end
+
+  # def list_new_streams_for_log_group
+  public
+  def list_new_streams_for_log_group(log_group, token = nil, objects = [])
     params = {
-        :log_group_name => @log_group,
-        :order_by => "LastEventTime",
-        :descending => false
+      :log_group_name => log_group,
+      :order_by => "LastEventTime",
+      :descending => false
     }
+
+    @logger.debug("CloudWatch Logs for log_group #{log_group}")
 
     if token != nil
       params[:next_token] = token
@@ -78,10 +92,9 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
       objects
     else
       @logger.debug("CloudWatch Logs calling list_new_streams again on token", :token => streams.next_token)
-      list_new_streams(streams.next_token, objects)
+      list_new_streams_for_log_group(log_group, streams.next_token, objects)
     end
-
-  end # def list_new_streams
+  end # def list_new_streams_for_log_group
 
   # def process_log
   private
@@ -90,7 +103,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     @codec.decode(log.message.to_str) do |event|
       event[LogStash::Event::TIMESTAMP] = parse_time(log.timestamp)
       event["[cloudwatch][ingestion_time]"] = parse_time(log.ingestion_time)
-      event["[cloudwatch][log_group]"] = @log_group
+      event["[cloudwatch][log_group]"] = stream.arn.split(/:/)[6]
       event["[cloudwatch][log_stream]"] = stream.log_stream_name
       decorate(event)
 
@@ -131,14 +144,14 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   def process_log_stream(queue, stream, last_read, current_window, token = nil)
     @logger.debug("CloudWatch Logs processing stream",
                   :log_stream => stream.log_stream_name,
-                  :log_group => @log_group,
+                  :log_group => stream.arn.split(":")[6],
                   :lastRead => last_read,
                   :currentWindow => current_window,
                   :token => token
     )
 
     params = {
-        :log_group_name => @log_group,
+        :log_group_name => stream.arn.split(":")[6],
         :log_stream_name => stream.log_stream_name,
         :start_from_head => true
     }
