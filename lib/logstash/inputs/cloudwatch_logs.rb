@@ -51,8 +51,9 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   # def run
   public
   def run(queue)
-    Stud.interval(@interval) do
+    while !stop?
       process_group(queue)
+      Stud.stoppable_sleep(@interval)
     end
   end # def run
 
