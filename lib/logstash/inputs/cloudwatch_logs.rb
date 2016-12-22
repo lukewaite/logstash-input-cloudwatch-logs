@@ -88,10 +88,10 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   def process_log(queue, log, stream)
 
     @codec.decode(log.message.to_str) do |event|
-      event[LogStash::Event::TIMESTAMP] = parse_time(log.timestamp)
-      event["[cloudwatch][ingestion_time]"] = parse_time(log.ingestion_time)
-      event["[cloudwatch][log_group]"] = @log_group
-      event["[cloudwatch][log_stream]"] = stream.log_stream_name
+      event.set("@timestamp", parse_time(log.timestamp))
+      event.set("[cloudwatch][ingestion_time]", parse_time(log.ingestion_time))
+      event.set("[cloudwatch][log_group]", @log_group)
+      event.set("[cloudwatch][log_stream]", stream.log_stream_name)
       decorate(event)
 
       queue << event
