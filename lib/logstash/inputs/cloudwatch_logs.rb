@@ -7,6 +7,9 @@ require "time"
 require "tmpdir"
 require "stud/interval"
 require "stud/temporary"
+require "logstash/inputs/cloudwatch/patch"
+
+Aws.eager_autoload!
 
 # Stream events from ClougWatch Logs streams.
 #
