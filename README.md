@@ -4,6 +4,50 @@
 [![Software License][ico-license]](LICENSE.md)
 [![Build Status][ico-travis]][link-travis]
 
+> Stream events from CloudWatch Logs streams.
+
+### Purpose
+Specify an individual log group, and this plugin will scan
+all log streams in that group, and pull in any new log events.
+
+Optionally, you may set the `log_group_prefix` parameter to true
+which will scan for all log groups matching the specified prefix
+and ingest all logs available in all of the matching groups.
+
+## Usage
+
+### Parameters
+| Parameter | Input Type | Required | Default |
+|-----------|------------|----------|---------|
+| log_group | string | Yes | |
+| log_group_prefix | boolean | No | `false` |
+| sincedb_path | string | No | `$HOME/.sincedb*` |
+| interval | number | No | 60 |
+| aws_credentials_file string | No | |
+| access_key_id | string | No | |
+| secret_access_key | string | No | |
+| session_token | string | No | |
+| codec | string | No | `plain` |
+
+Other standard logstash parameters are available such as:
+* `add_field`
+* `type`
+* `tags`
+
+### Example
+
+    input {
+        cloudwatch_logs {
+            log_group => "/aws/lambda/my-lambda"
+            access_key_id => "AKIAXXXXXX" 
+            secret_access_key => "SECRET"
+        }
+    }
+
+## Development
+The [default logstash README](docs/Logstash%20Plugin%20Development.md) which contains development directions and other information has been moved to the [`docs`](docs/)
+directory.
+
 ## Contributing
 
 All contributions are welcome: ideas, patches, documentation, bug reports, complaints, and even something you drew up on a napkin.
