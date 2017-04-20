@@ -1,0 +1,9 @@
+sudo: false
+language: ruby
+cache: bundler
+rvm:
+  - jruby-1.7.23
+jdk: openjdk8
+dist: trusty
+script:
+  - bundle exec rspec spec
