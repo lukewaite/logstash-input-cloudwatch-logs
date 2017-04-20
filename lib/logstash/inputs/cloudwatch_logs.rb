@@ -12,11 +12,14 @@ require "logstash/inputs/cloudwatch/patch"
 
 Aws.eager_autoload!
 
-# Stream events from ClougWatch Logs streams.
+# Stream events from CloudWatch Logs streams.
 #
-# Primarily designed to pull logs from Lambda's which are logging to
-# CloudWatch Logs. Specify a log group, and this plugin will scan
+# Specify an individual log group, and this plugin will scan
 # all log streams in that group, and pull in any new log events.
+#
+# Optionally, you may set the `log_group_prefix` parameter to true
+# which will scan for all log groups matching the specified prefix
+# and ingest all logs available in all of the matching groups.
 #
 class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   include LogStash::PluginMixins::AwsConfig::V2
@@ -30,7 +33,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   config :log_group, :validate => :string, :required => true
 
   # Where to write the since database (keeps track of the date
-  # the last handled file was added to S3). The default will write
+  # the last handled log stream was updated). The default will write
   # sincedb files to some path matching "$HOME/.sincedb*"
   # Should be a path with filename not just a directory.
   config :sincedb_path, :validate => :string, :default => nil
