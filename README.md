@@ -24,7 +24,7 @@ and ingest all logs available in all of the matching groups.
 | log_group_prefix | boolean | No | `false` |
 | sincedb_path | string | No | `$HOME/.sincedb*` |
 | interval | number | No | 60 |
-| aws_credentials_file string | No | |
+| aws_credentials_file | string | No | |
 | access_key_id | string | No | |
 | secret_access_key | string | No | |
 | session_token | string | No | |
