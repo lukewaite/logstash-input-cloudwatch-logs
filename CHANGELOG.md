@@ -1,26 +1,31 @@
 # Release Notes for `logstash-input-cloudwatch_logs`
 
+## v0.10.1 (2017-04--19)
+
+### Fixed
+* Fixed issue [#16](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/16) which prevented loading the plugin ([#17](https://github.com/lukewaite/logstash-input-cloudwatch-logs/pull/17)) 
+
 ## v0.10.0 (2017-04-01)
 
-## Added
+### Added
 * `log_group_prefix` parameter supporting ingesting a set of log groups matching a prefix ([#9](https://github.com/lukewaite/logstash-input-cloudwatch-logs/pull/9))
 
-## Fixed
+### Fixed
 * Step back when throttled by Amazon ([#9](https://github.com/lukewaite/logstash-input-cloudwatch-logs/pull/9))
 
 ## v0.9.4 (2017-03-31)
 
-## Fixed
+### Fixed
 * Fix autoloading of aws-sdk ([#15](https://github.com/lukewaite/logstash-input-cloudwatch-logs/pull/15))
 
 ## v0.9.3 (2016-12-22)
 
-## Added
+### Added
 * Support for Logstash version 5.x ([#6e7cc5d](https://github.com/lukewaite/logstash-input-cloudwatch-logs/commit/6e7cc5decdcd7a8d8528d42a7b040b1d2f3a3490))
 
 ## v0.9.2 (2016-07-21)
 
-## Added
+### Added
 * Initial publish to RubyGems
 
 ## v0.9.1 (2016-07-19)
