@@ -28,6 +28,7 @@ and ingest all logs available in all of the matching groups.
 | access_key_id | string | No | |
 | secret_access_key | string | No | |
 | session_token | string | No | |
+| region | string | No | `us-east-1` |
 | codec | string | No | `plain` |
 
 Other standard logstash parameters are available such as:
