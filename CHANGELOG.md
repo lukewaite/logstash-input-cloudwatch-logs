@@ -1,6 +1,6 @@
 # Release Notes for `logstash-input-cloudwatch_logs`
 
-## v0.10.1 (2017-04--19)
+## v0.10.1 (2017-04-19)
 
 ### Fixed
 * Fixed issue [#16](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/16) which prevented loading the plugin ([#17](https://github.com/lukewaite/logstash-input-cloudwatch-logs/pull/17)) 
