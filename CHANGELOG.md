@@ -1,5 +1,10 @@
 # Release Notes for `logstash-input-cloudwatch_logs`
 
+## Unreleased
+
+### Fixed
+* Fixed bad merge on [#eb38dfd](https://github.com/lukewaite/logstash-input-cloudwatch-logs/commit/eb38dfdc072b4fd21e9c1d83ea306e2b6c5df37b) and restore compatibility with the Logstash 5.x events API
+
 ## v0.10.1 (2017-04-19)
 
 ### Fixed

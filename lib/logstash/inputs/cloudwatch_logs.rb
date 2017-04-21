@@ -124,9 +124,9 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
 
     @codec.decode(log.message.to_str) do |event|
       event.set("@timestamp", parse_time(log.timestamp))
-      event["[cloudwatch][ingestion_time]"] = parse_time(log.ingestion_time)
-      event["[cloudwatch][log_group]"] = stream.arn.split(/:/)[6]
-      event["[cloudwatch][log_stream]"] = stream.log_stream_name
+      event.set("[cloudwatch][ingestion_time]", parse_time(log.ingestion_time))
+      event.set("[cloudwatch][log_group]", stream.arn.split(/:/)[6])
+      event.set("[cloudwatch][log_stream]", stream.log_stream_name)
       decorate(event)
 
       queue << event
