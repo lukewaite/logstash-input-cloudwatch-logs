@@ -73,6 +73,10 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     if @log_group_prefix
       log_groups = @cloudwatch.describe_log_groups(log_group_name_prefix: @log_group)
       groups = log_groups.log_groups.map {|n| n.log_group_name}
+      while log_groups.next_token
+        log_groups = @cloudwatch.describe_log_groups(log_group_name_prefix: @log_group, next_token: log_groups.next_token)
+        groups += log_groups.log_groups.map {|n| n.log_group_name}
+      end
     else
       groups = [@log_group]
     end
