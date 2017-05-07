@@ -1,5 +1,10 @@
 # Release Notes for `logstash-input-cloudwatch_logs`
 
+## v0.10.3  (2017-05-07)
+
+### Fixed
+* Fixed issue fetching log groups by prefix when there are more than 50 groups ([#22](https://github.com/lukewaite/logstash-input-cloudwatch-logs/pull/22))
+
 ## v0.10.2 (2017-04-20)
 
 ### Fixed
