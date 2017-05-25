@@ -45,6 +45,8 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   # Decide if log_group is a prefix or an absolute name
   config :log_group_prefix, :validate => :boolean, :default => false
 
+  # Number of hours back from which we are fetching the logs
+  config :buffer, :validate => :number, :default => 1
 
   # def register
   public
@@ -113,7 +115,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     end
 
     objects.push(*streams.log_streams)
-    if streams.next_token == nil
+    if streams.next_token == nil || (streams[-1].last_event_timestamp < (Time.now - 60*60*@buffer).to_i*1000)
       @logger.debug("CloudWatch Logs hit end of tokens for streams")
       objects
     else
@@ -179,7 +181,8 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     params = {
         :log_group_name => stream.arn.split(":")[6],
         :log_stream_name => stream.log_stream_name,
-        :start_from_head => true
+        :start_from_head => true,
+        :start_time => (Time.now.to_i - 60*@buffer) * 1000,
     }
 
     if token != nil
