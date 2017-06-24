@@ -1,7 +1,7 @@
 # Release Notes for `logstash-input-cloudwatch_logs`
 
 ## v1.0.0 Pre-Release (2017-06-24)
-* BREAKING CHANGE: `log_group` must now be an array, adds support for specifying multiple groups or prefixes
+* BREAKING CHANGE: `log_group` must now be an array, adds support for specifying multiple groups or prefixes (Fixes [#13](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/13))
 * Refactored ingestion, fixes multiple memory leaks (Fixes [#24](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/4))
 * Pull only log_events since last ingestion (Fixes [#10](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/10))
 * Incrementally write to since_db on each page of data from the CWL API (Fixes [#4](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/4))
