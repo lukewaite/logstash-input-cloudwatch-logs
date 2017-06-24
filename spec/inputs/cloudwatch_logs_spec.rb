@@ -23,21 +23,4 @@ describe LogStash::Inputs::CloudWatch_Logs do
       expect {subject.register}.to_not raise_error
     end
   end
-
-  describe '#run' do
-    let(:config) {
-      {
-          'access_key_id' => '1234',
-          'secret_access_key' => 'secret',
-          'log_group' => ['sample-log-group'],
-          'region' => 'us-east-1'
-      }
-    }
-    subject {LogStash::Inputs::CloudWatch_Logs.new(config)}
-
-    it "runs" do
-      subject.register
-      expect{subject.run({})}.to_not raise_error
-    end
-  end
 end
