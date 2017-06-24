@@ -20,7 +20,7 @@ and ingest all logs available in all of the matching groups.
 ### Parameters
 | Parameter | Input Type | Required | Default |
 |-----------|------------|----------|---------|
-| log_group | string | Yes | |
+| log_group | array | Yes | |
 | log_group_prefix | boolean | No | `false` |
 | sincedb_path | string | No | `$HOME/.sincedb*` |
 | interval | number | No | 60 |
@@ -40,7 +40,7 @@ Other standard logstash parameters are available such as:
 
     input {
         cloudwatch_logs {
-            log_group => "/aws/lambda/my-lambda"
+            log_group => [ "/aws/lambda/my-lambda" ]
             access_key_id => "AKIAXXXXXX" 
             secret_access_key => "SECRET"
         }
