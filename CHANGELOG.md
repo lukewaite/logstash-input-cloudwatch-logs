@@ -1,5 +1,8 @@
 # Release Notes for `logstash-input-cloudwatch_logs`
 
+## v1.0.0.pre3 Pre-Release 3 (2017-06-28)
+* Fix call to `filter_log_events` which had been limited to 10 events per call for debugging
+
 ## v1.0.0.pre2 Pre-Release 2 (2017-06-28)
 * Remove the breaking change in v1.0.0.pre. `log_group` is now a `string` supporting `lists`, allowing either notation
 * Change startup log from TRACE to DEBUG, supporting Logstash 2.4
