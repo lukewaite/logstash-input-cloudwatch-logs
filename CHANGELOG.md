@@ -1,6 +1,11 @@
 # Release Notes for `logstash-input-cloudwatch_logs`
 
-## v1.0.0 Pre-Release (2017-06-24)
+## v1.0.0.pre2 Pre-Release 2 (2017-06-28)
+* Remove the breaking change in v1.0.0.pre. `log_group` is now a `string` supporting `lists`, allowing either notation
+* Change startup log from TRACE to DEBUG, supporting Logstash 2.4
+* Relax the contstraint on `logstash-mixin-aws` supporting Logstash 2.4
+
+## v1.0.0.pre Pre-Release 1 (2017-06-24)
 * BREAKING CHANGE: `log_group` must now be an array, adds support for specifying multiple groups or prefixes (Fixes [#13](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/13))
 * Refactored ingestion, fixes multiple memory leaks (Fixes [#24](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/4))
 * Pull only log_events since last ingestion (Fixes [#10](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/10))

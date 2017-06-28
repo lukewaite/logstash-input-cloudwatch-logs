@@ -29,7 +29,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
 
   # Log group(s) to use as an input. If `log_group_prefix` is set
   # to `true`, then each member of the array is treated as a prefix
-  config :log_group, :validate => :array, :required => true
+  config :log_group, :validate => :string, :list => true, :required => true
 
   # Where to write the since database (keeps track of the date
   # the last handled log stream was updated). The default will write
@@ -49,7 +49,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   public
   def register
     require "digest/md5"
-    @logger.trace("Registering cloudwatch_logs input", :log_group => @log_group)
+    @logger.debug("Registering cloudwatch_logs input", :log_group => @log_group)
     settings = defined?(LogStash::SETTINGS) ? LogStash::SETTINGS : nil
     @sincedb = {}
 
