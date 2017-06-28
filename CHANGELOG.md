@@ -6,7 +6,7 @@
 * Relax the contstraint on `logstash-mixin-aws` supporting Logstash 2.4
 
 ## v1.0.0.pre Pre-Release 1 (2017-06-24)
-* BREAKING CHANGE: `log_group` must now be an array, adds support for specifying multiple groups or prefixes (Fixes [#13](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/13))
+* ~BREAKING CHANGE: `log_group` must now be an array~ (See 1.0.0.pre2 - no longer a breaking change) adds support for specifying multiple groups or prefixes (Fixes [#13](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/13))
 * Refactored ingestion, fixes multiple memory leaks (Fixes [#24](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/4))
 * Pull only log_events since last ingestion (Fixes [#10](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/10))
 * Incrementally write to since_db on each page of data from the CWL API (Fixes [#4](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/4))
