@@ -1,5 +1,8 @@
 # Release Notes for `logstash-input-cloudwatch_logs`
 
+## [Unreleased]
+* Ensure the plugin stops properly
+
 ## v1.0.0.pre3 Pre-Release 3 (2017-06-28)
 * Fix call to `filter_log_events` which had been limited to 10 events per call for debugging
 

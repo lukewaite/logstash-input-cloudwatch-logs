@@ -94,15 +94,16 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     @queue = queue
     _sincedb_open
 
-    Stud.interval(@interval) do
+    while !stop?
       groups = find_log_groups
 
       groups.each do |group|
         @logger.debug("calling process_group on #{group}")
         process_group(group)
       end # groups.each
-    end
 
+      Stud.stoppable_sleep(@interval) { stop? }
+    end
   end # def run
 
   public
