@@ -20,7 +20,7 @@ and ingest all logs available in all of the matching groups.
 ### Parameters
 | Parameter | Input Type | Required | Default |
 |-----------|------------|----------|---------|
-| log_group | string | Array of strings | Yes | |
+| log_group | string or Array of strings | Yes | |
 | log_group_prefix | boolean | No | `false` |
 | sincedb_path | string | No | `$HOME/.sincedb*` |
 | interval | number | No | 60 |
