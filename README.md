@@ -5,14 +5,14 @@
 [![Software License][ico-license]](LICENSE.md)
 [![Build Status][ico-travis]][link-travis]
 
-> Stream events from CloudWatch Logs streams.
+> Stream events from CloudWatch Logs.
 
 ### Purpose
-Specify an individual log group, and this plugin will scan
+Specify an individual log group or array of groups, and this plugin will scan
 all log streams in that group, and pull in any new log events.
 
 Optionally, you may set the `log_group_prefix` parameter to true
-which will scan for all log groups matching the specified prefix
+which will scan for all log groups matching the specified prefix(s)
 and ingest all logs available in all of the matching groups.
 
 ## Usage
@@ -20,7 +20,7 @@ and ingest all logs available in all of the matching groups.
 ### Parameters
 | Parameter | Input Type | Required | Default |
 |-----------|------------|----------|---------|
-| log_group | array | Yes | |
+| log_group | string | Array of strings | Yes | |
 | log_group_prefix | boolean | No | `false` |
 | sincedb_path | string | No | `$HOME/.sincedb*` |
 | interval | number | No | 60 |
