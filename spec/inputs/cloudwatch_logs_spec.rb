@@ -31,12 +31,39 @@ describe LogStash::Inputs::CloudWatch_Logs do
   end
 
   describe '#register' do
-    subject {LogStash::Inputs::CloudWatch_Logs.new(config)}
+    context 'default config' do
+      subject {LogStash::Inputs::CloudWatch_Logs.new(config)}
 
-    it 'registers succesfully' do
-      expect {subject.register}.to_not raise_error
+      it 'registers succesfully' do
+        expect {subject.register}.to_not raise_error
+      end
+    end
+
+    context 'start_position set to end' do
+      subject {LogStash::Inputs::CloudWatch_Logs.new(config.merge({'start_position' => 'end'}))}
+
+      it 'registers succesfully' do
+        expect {subject.register}.to_not raise_error
+      end
+    end
+
+    context 'start_position set to an integer' do
+      subject {LogStash::Inputs::CloudWatch_Logs.new(config.merge({'start_position' => 100}))}
+
+      it 'registers succesfully' do
+        expect {subject.register}.to_not raise_error
+      end
+    end
+
+    context 'start_position invalid' do
+      subject {LogStash::Inputs::CloudWatch_Logs.new(config.merge({'start_position' => 'invalid start position'}))}
+
+      it 'raises a configuration error' do
+        expect {subject.register}.to raise_error(LogStash::ConfigurationError)
+      end
     end
   end
+
 
   describe '#find_log_groups without prefix true' do
     context 'with an array in the config' do
