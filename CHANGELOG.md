@@ -1,6 +1,6 @@
 # Release Notes for `logstash-input-cloudwatch_logs`
 
-## [Unreleased]
+## v1.0.0.rc1 Release Candidate 1 (2017-07-02)
 * Ensure the plugin stops properly
 * Implement `start_position` setting ([#28](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/28))
 
