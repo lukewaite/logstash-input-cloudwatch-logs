@@ -22,6 +22,7 @@ and ingest all logs available in all of the matching groups.
 |-----------|------------|----------|---------|
 | log_group | string or Array of strings | Yes | |
 | log_group_prefix | boolean | No | `false` |
+| start_position | `beginning`, `end`, or an Integer | No | `beginning` |
 | sincedb_path | string | No | `$HOME/.sincedb*` |
 | interval | number | No | 60 |
 | aws_credentials_file | string | No | |
@@ -31,6 +32,18 @@ and ingest all logs available in all of the matching groups.
 | region | string | No | `us-east-1` |
 | codec | string | No | `plain` |
 
+#### `start_position`
+The `start_position` setting allows you to specify where to begin processing
+a newly encountered log group on plugin boot. Whether the group is 'new' is
+determined by whether or not the log group has a previously existing entry in
+the sincedb file.
+
+Valid options for `start_position` are:
+* `beginning` - Reads from the beginning of the group (default)
+* `end` - Sets the sincedb to now, and reads any new messages going forward
+* Integer - Number of seconds in the past to begin reading at
+
+#### Logstash Default config params
 Other standard logstash parameters are available such as:
 * `add_field`
 * `type`
