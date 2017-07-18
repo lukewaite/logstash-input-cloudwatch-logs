@@ -131,9 +131,18 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
       @logger.debug("log_group prefix is enabled, searching for log groups")
       groups = []
       next_token = nil
+      stepback = 1
       @log_group.each do |group|
         loop do
-          log_groups = @cloudwatch.describe_log_groups(log_group_name_prefix: group, next_token: next_token)
+          begin
+            log_groups = @cloudwatch.describe_log_groups(log_group_name_prefix: group, next_token: next_token)
+          rescue Aws::CloudWatchLogs::Errors::ThrottlingException
+            @logger.debug("CloudWatch Logs (find_log_groups) stepping back ", :stepback => 2 * stepback * 60)
+            sleep(2 ** stepback * 60)
+            stepback += 1
+            @logger.debug("CloudWatch Logs (find_log_groups) beginning again with token ", :token => next_token)
+            next
+          end
           groups += log_groups.log_groups.map {|n| n.log_group_name}
           next_token = log_groups.next_token
           @logger.debug("found #{log_groups.log_groups.length} log groups matching prefix #{group}")
@@ -168,6 +177,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   private
   def process_group(group)
     next_token = nil
+    stepback = 1
     loop do
       if !@sincedb.member?(group)
         @sincedb[group] = 0
@@ -178,7 +188,15 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
           :interleaved => true,
           :next_token => next_token
       }
-      resp = @cloudwatch.filter_log_events(params)
+      begin
+        resp = @cloudwatch.filter_log_events(params)
+      rescue Aws::CloudWatchLogs::Errors::ThrottlingException
+        @logger.debug("CloudWatch Logs (process_group) stepping back ", :stepback => 2 * stepback * 60)
+        sleep(2 ** stepback * 60)
+        stepback += 1
+        @logger.debug("CloudWatch Logs (process_group) beginning again with token ", :token => next_token, :log_group_name => group)
+        next
+      end
 
       resp.events.each do |event|
         process_log(event, group)
