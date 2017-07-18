@@ -110,16 +110,21 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   public
   def run(queue)
     @queue = queue
+    @priority = []
     _sincedb_open
     determine_start_position(find_log_groups)
 
     while !stop?
-      groups = find_log_groups
+      begin
+        groups = find_log_groups
 
-      groups.each do |group|
-        @logger.debug("calling process_group on #{group}")
-        process_group(group)
-      end # groups.each
+        groups.each do |group|
+          @logger.debug("calling process_group on #{group}")
+          process_group(group)
+        end # groups.each
+      rescue Aws::CloudWatchLogs::Errors::ThrottlingException
+        @logger.debug("reached rate limit")
+      end
 
       Stud.stoppable_sleep(@interval) { stop? }
     end
@@ -144,8 +149,14 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
       @logger.debug("log_group_prefix not enabled")
       groups = @log_group
     end
-    groups
+    # Move the most recent groups to the end
+    groups.sort{|a,b| priority_of(a) <=> priority_of(b) }
   end # def find_log_groups
+
+  private
+  def priority_of(group)
+    @priority.index(group) || -1
+  end
 
   public
   def determine_start_position(groups)
@@ -189,6 +200,8 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
       next_token = resp.next_token
       break if next_token.nil?
     end
+    @priority.delete(group)
+    @priority << group
   end #def process_group
 
   # def process_log
