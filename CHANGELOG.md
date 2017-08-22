@@ -5,6 +5,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [v1.0.1] (2017-08-22)
+
+### Fixed
+* Handle rate limiting when making requests to the CWL apis ([#32](https://github.com/lukewaite/logstash-input-cloudwatch-logs/pull/32))
+
 ## [v1.0.0] (2017-07-15)
 
 ### Added
@@ -18,5 +23,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 * Pull only log_events since last ingestion (Fixes [#10](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/10))
 * Incrementally write to since_db on each page of data from the CWL API (Fixes [#4](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/4))
 
-[Unreleased]: https://github.com/lukewaite/logstash-input-cloudwatch-logs/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/lukewaite/logstash-input-cloudwatch-logs/compare/v1.0.1...HEAD
+[v1.0.1]: https://github.com/lukewaite/logstash-input-cloudwatch-logs/compare/v0.1.0.0...v1.0.1
 [v1.0.0]: https://github.com/lukewaite/logstash-input-cloudwatch-logs/compare/v0.10.3...v1.0.0
