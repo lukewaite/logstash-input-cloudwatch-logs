@@ -60,8 +60,7 @@ Other standard logstash parameters are available such as:
     }
 
 ## Development
-The [default logstash README](docs/Logstash%20Plugin%20Development.md) which contains development directions and other information has been moved to the [`docs`](docs/)
-directory.
+The [default logstash README](DEVELOPER.md) which contains development directions and other information has been moved to [DEVELOPER.md](DEVELOPER.md).
 
 ## Contributing
 
