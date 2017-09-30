@@ -170,7 +170,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
             @sincedb[group] = DateTime.now.strftime('%Q')
 
           else
-            @sincedb[group] = DateTime.now.strftime('%Q') - (@start_position * 1000)
+            @sincedb[group] = DateTime.now.strftime('%Q').to_i - (@start_position * 1000)
         end # case @start_position
       end
     end
