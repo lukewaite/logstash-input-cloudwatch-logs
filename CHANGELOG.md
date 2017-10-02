@@ -4,6 +4,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+* Handle a `start_position` integer value correctly ([#41](https://github.com/lukewaite/logstash-input-cloudwatch-logs/pull/41) - Fixes [#38](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/38))
 
 ## [v1.0.1] (2017-08-22)
 
