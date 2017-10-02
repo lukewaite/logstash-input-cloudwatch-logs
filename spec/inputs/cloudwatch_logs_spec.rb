@@ -83,6 +83,17 @@ describe LogStash::Inputs::CloudWatch_Logs do
     end
   end
 
+  describe '#determine_start_position' do
+    context 'start_position set to an integer' do
+      sincedb = {}
+      subject {LogStash::Inputs::CloudWatch_Logs.new(config.merge({'start_position' => 100}))}
+
+      it 'successfully parses the start position' do
+        expect {subject.determine_start_position(['test'], sincedb)}.to_not raise_error
+      end
+    end
+  end
+
   # describe '#find_log_groups with prefix true' do
   #   subject {LogStash::Inputs::CloudWatch_Logs.new(config.merge({'log_group_prefix' => true}))}
   #
