@@ -4,6 +4,8 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [v1.0.2] (2017-10-07)
 * Handle a `start_position` integer value correctly ([#41](https://github.com/lukewaite/logstash-input-cloudwatch-logs/pull/41) - Fixes [#38](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/38))
 
 ## [v1.0.1] (2017-08-22)
@@ -24,6 +26,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 * Pull only log_events since last ingestion (Fixes [#10](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/10))
 * Incrementally write to since_db on each page of data from the CWL API (Fixes [#4](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/4))
 
-[Unreleased]: https://github.com/lukewaite/logstash-input-cloudwatch-logs/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/lukewaite/logstash-input-cloudwatch-logs/compare/v1.0.2...HEAD
+[v1.0.1]: https://github.com/lukewaite/logstash-input-cloudwatch-logs/compare/v1.0.1...v1.0.2
 [v1.0.1]: https://github.com/lukewaite/logstash-input-cloudwatch-logs/compare/v1.0.0...v1.0.1
 [v1.0.0]: https://github.com/lukewaite/logstash-input-cloudwatch-logs/compare/v0.10.3...v1.0.0
