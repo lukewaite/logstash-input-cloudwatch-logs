@@ -5,6 +5,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [v1.0.3] (2018-05-28)
+* Update minimum version of `logstash-mixin-aws` to support assume role ([#9a4677f](https://github.com/lukewaite/logstash-input-cloudwatch-logs/commit/9a4677fef8bcbf291bd4b357be2a9568ea4f3fc1) - Fixes [#51](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/51), [#39](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/39))
+
 ## [v1.0.2] (2017-10-07)
 * Handle a `start_position` integer value correctly ([#41](https://github.com/lukewaite/logstash-input-cloudwatch-logs/pull/41) - Fixes [#38](https://github.com/lukewaite/logstash-input-cloudwatch-logs/issues/38))
 
