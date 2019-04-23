@@ -3,6 +3,7 @@ require "logstash/inputs/base"
 require "logstash/namespace"
 require "logstash/plugin_mixins/aws_config"
 require "logstash/timestamp"
+require "logstash/codecs/identity_map_codec"
 require "time"
 require "stud/interval"
 require "aws-sdk"
@@ -93,7 +94,9 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
       @logger.info("No sincedb_path set, generating one based on the log_group setting",
                    :sincedb_path => @sincedb_path, :log_group => @log_group)
     end
-
+    # Wrap codec in multiline plugin's pseudo-codec, identity_map_codec, to support multiline
+    # streams from multiple sources (i.e. log groups).
+    @codec = LogStash::Codecs::IdentityMapCodec.new(@codec)
   end #def register
 
   public
@@ -208,7 +211,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   private
   def process_log(log, group)
 
-    @codec.decode(log.message.to_str) do |event|
+    @codec.decode(log.message.to_str, identity=group) do |event|
       event.set("@timestamp", parse_time(log.timestamp))
       event.set("[cloudwatch_logs][ingestion_time]", parse_time(log.ingestion_time))
       event.set("[cloudwatch_logs][log_group]", group)
