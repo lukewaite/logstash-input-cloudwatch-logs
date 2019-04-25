@@ -31,6 +31,7 @@ and ingest all logs available in all of the matching groups.
 | session_token | string | No | |
 | region | string | No | `us-east-1` |
 | codec | string | No | `plain` |
+| filter_pattern | string | No | `` |
 
 #### `start_position`
 The `start_position` setting allows you to specify where to begin processing
@@ -42,6 +43,9 @@ Valid options for `start_position` are:
 * `beginning` - Reads from the beginning of the group (default)
 * `end` - Sets the sincedb to now, and reads any new messages going forward
 * Integer - Number of seconds in the past to begin reading at
+#### `filter_pattern`
+[Filter and Pattern Syntax.](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/FilterAndPatternSyntax.html)
+
 
 #### Logstash Default config params
 Other standard logstash parameters are available such as:
