@@ -15,6 +15,9 @@ Optionally, you may set the `log_group_prefix` parameter to true
 which will scan for all log groups matching the specified prefix(s)
 and ingest all logs available in all of the matching groups.
 
+### Installation
+Run bin/logstash-plugin install logstash-input-cloudwatch_logs from your logstash directory
+
 ## Usage
 
 ### Parameters
