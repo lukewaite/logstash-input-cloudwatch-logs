@@ -183,12 +183,19 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
       if !@sincedb.member?(group)
         @sincedb[group] = 0
       end
-      params = {
+      if next_token.nil?
+        params = {
           :log_group_name => group,
-          :start_time => @sincedb[group],
+          :interleaved => true,
+          :start_time => @sincedb[group]
+        }
+      else
+        params = {
+          :log_group_name => group,
           :interleaved => true,
           :next_token => next_token
-      }
+        }
+      end
       resp = @cloudwatch.filter_log_events(params)
 
       resp.events.each do |event|
