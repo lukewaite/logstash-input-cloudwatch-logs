@@ -179,15 +179,21 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   private
   def process_group(group)
     next_token = nil
+    new_start_position = 0
+    if !@sincedb.member?(group)
+      @sincedb[group] = 0
+    end
+    initial_start_time = @sincedb[group]
+    initial_end_time = DateTime.now.strftime('%Q')
+    logger.info("Read logs use time: #{parse_time(initial_start_time)} for group:#{group}")
     loop do
-      if !@sincedb.member?(group)
-        @sincedb[group] = 0
-      end
+      logger.info("Read logs use token since for group:#{group}") if !next_token.nil?
       params = {
-          :log_group_name => group,
-          :start_time => @sincedb[group],
-          :interleaved => true,
-          :next_token => next_token
+	    :log_group_name => group,
+	    :start_time => initial_start_time,
+	    :end_time => initial_end_time,
+	    :interleaved => true,
+            :next_token => next_token
       }
       resp = @cloudwatch.filter_log_events(params)
 
@@ -195,11 +201,10 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
         process_log(event, group)
       end
 
-      _sincedb_write
-
       next_token = resp.next_token
       break if next_token.nil?
     end
+    _sincedb_write
     @priority.delete(group)
     @priority << group
   end #def process_group
@@ -217,7 +222,9 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
       decorate(event)
 
       @queue << event
-      @sincedb[group] = log.timestamp + 1
+      if @sincedb[group] < log.timestamp
+        @sincedb[group] = log.timestamp + 1 
+      end
     end
   end # def process_log
 
