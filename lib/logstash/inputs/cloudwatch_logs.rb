@@ -94,6 +94,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
                    :sincedb_path => @sincedb_path, :log_group => @log_group)
     end
 
+    @logger.info("Using sincedb_path #{@sincedb_path}")
   end #def register
 
   public
@@ -112,7 +113,6 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     @queue = queue
     @priority = []
     _sincedb_open
-    determine_start_position(find_log_groups, @sincedb)
 
     while !stop?
       begin
@@ -158,41 +158,34 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     @priority.index(group) || -1
   end
 
-  public
-  def determine_start_position(groups, sincedb)
-    groups.each do |group|
-      if !sincedb.member?(group)
-        case @start_position
-          when 'beginning'
-            sincedb[group] = 0
-
-          when 'end'
-            sincedb[group] = DateTime.now.strftime('%Q')
-
-          else
-            sincedb[group] = DateTime.now.strftime('%Q').to_i - (@start_position * 1000)
-        end # case @start_position
-      end
-    end
-  end # def determine_start_position
 
   private
   def process_group(group)
     next_token = nil
     loop do
-      if !@sincedb.member?(group)
-        @sincedb[group] = 0
-      end
+
+      # The log streams in the group can overlap, even if interleaved
+      # is true (as it is by default) so we restart each query from the earliest
+      # time for which we had records across the group.
+      # We will still filter out old records at the stream level in  process_log
+      # We don't filter by the log streams because we'd have to go looking for them
+      # and AWS can't guarantee the last event time in the result of that query
+      # is accurate
+
+      # NOTE: if the group-level filter isn't set to anything it will
+      # be set by this method to the correct default
+      start_time, stream_positions = get_sincedb_group_values(group)
+
       params = {
           :log_group_name => group,
-          :start_time => @sincedb[group],
+          :start_time => start_time,
           :interleaved => true,
           :next_token => next_token
       }
       resp = @cloudwatch.filter_log_events(params)
 
       resp.events.each do |event|
-        process_log(event, group)
+        process_log(event, group, stream_positions)
       end
 
       _sincedb_write
@@ -206,18 +199,25 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
 
   # def process_log
   private
-  def process_log(log, group)
+  def process_log(log, group, stream_positions)
+    identity = identify(group, log.log_stream_name)
+    stream_position = stream_positions.fetch(identity, 0)
+    
+    @logger.trace? && @logger.trace("Checking event time #{log.timestamp} (#{parse_time(log.timestamp)}) -> #{stream_position}")    
 
-    @codec.decode(log.message.to_str) do |event|
-      event.set("@timestamp", parse_time(log.timestamp))
-      event.set("[cloudwatch_logs][ingestion_time]", parse_time(log.ingestion_time))
-      event.set("[cloudwatch_logs][log_group]", group)
-      event.set("[cloudwatch_logs][log_stream]", log.log_stream_name)
-      event.set("[cloudwatch_logs][event_id]", log.event_id)
-      decorate(event)
+    if log.timestamp >= stream_position
+      @logger.trace? && @logger.trace("Processing event")    
+      @codec.decode(log.message.to_str) do |event|
+        event.set("@timestamp", parse_time(log.timestamp))
+        event.set("[cloudwatch_logs][ingestion_time]", parse_time(log.ingestion_time))
+        event.set("[cloudwatch_logs][log_group]", group)
+        event.set("[cloudwatch_logs][log_stream]", log.log_stream_name)
+        event.set("[cloudwatch_logs][event_id]", log.event_id)
+        decorate(event)
 
-      @queue << event
-      @sincedb[group] = log.timestamp + 1
+        @queue << event
+        set_sincedb_value(group, log.log_stream_name, log.timestamp + 1 )
+      end
     end
   end # def process_log
 
@@ -227,15 +227,92 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     LogStash::Timestamp.at(data.to_i / 1000, (data.to_i % 1000) * 1000)
   end # def parse_time
 
+
+  private 
+  def identify(group, log_stream_name)
+    # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-logs-loggroup.html
+    # ':' isn't allowed in a log group name, so we can use it safely
+    return "#{group}:#{log_stream_name}"
+  end
+
+  private
+  def set_sincedb_value(group, log_stream_name, timestamp)
+    @logger.debug("Setting sincedb #{group}:#{log_stream_name} -> #{timestamp}")    
+
+    # make sure this is an integer
+    if timestamp.is_a? String 
+      timestamp = timestamp.to_i
+    end
+
+    # the per-stream level
+    @sincedb[identify(group, log_stream_name)] = timestamp
+
+    # the overall group high water mark
+    current_pos = @sincedb.fetch(group, 0)
+    if current_pos.is_a? String 
+      current_pos = current_pos.to_i
+    end
+
+    if current_pos < timestamp
+      @sincedb[group] = timestamp
+    end
+
+  end # def set_sincedb_value
+
+
+
+  # scan over all the @sincedb entries for this group and pick the _earliest_ value
+  # Returns a list of [earliest last position in group, the last position of each log stream in that group ]
+  # the map is of the form [group:logstream] -> timestamp (long ms) and also [group] -> timestamp (long ms) 
+  private
+  def get_sincedb_group_values(group)
+    # if we've no group, or stream, then we have never seen these events
+    @logger.debug("Getting sincedb #{group} from  #{@sincedb}")
+
+    # if we have no group-level then we set one
+    if @sincedb[group].nil?
+      @sincedb[group] = get_default_start_time
+    end
+
+    ## assume the group level min value
+    min_value = @sincedb[group]
+    min_map = {}
+    # now route through all the entries for this group (one of these will
+    # be the group-specific entry)
+    @sincedb.map do |identity, pos|
+      if identity.start_with?(group) && (min_value.nil? || min_value > pos)
+        min_value = pos
+      end
+      min_map[identity] = pos
+    end 
+
+    @logger.debug("Got sincedb #{group} as #{min_value} -> #{min_map}")
+
+    return [min_value, min_map]
+  end # def get_sincedb_group_values  
+
+  private
+  def get_default_start_time()
+    # chose the start time based on the configs
+    case @start_position
+    when 'beginning'
+      return 0
+    when 'end'
+      return DateTime.now.strftime('%Q')
+    else
+      return DateTime.now.strftime('%Q').to_i - (@start_position * 1000)
+    end # case @start_position    
+  end
+
   private
   def _sincedb_open
     begin
       File.open(@sincedb_path) do |db|
         @logger.debug? && @logger.debug("_sincedb_open: reading from #{@sincedb_path}")
         db.each do |line|
-          group, pos = line.split(" ", 2)
-          @logger.debug? && @logger.debug("_sincedb_open: setting #{group} to #{pos.to_i}")
-          @sincedb[group] = pos.to_i
+          identity, pos = line.split(" ", 2)
+          @logger.debug? && @logger.debug("_sincedb_open: setting #{identity} to #{pos.to_i}")
+          @sincedb[identity] = pos.to_i
         end
       end
     rescue
@@ -258,8 +335,8 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
 
   private
   def serialize_sincedb
-    @sincedb.map do |group, pos|
-      [group, pos].join(" ")
+    @sincedb.map do |identity, pos|
+      [identity, pos].join(" ")
     end.join("\n") + "\n"
   end
 end # class LogStash::Inputs::CloudWatch_Logs
