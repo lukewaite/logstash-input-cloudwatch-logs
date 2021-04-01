@@ -3,3 +3,5 @@ Gemfile.lock
 .bundle
 vendor
 coverage/
+
+Jars.lock
