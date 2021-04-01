@@ -280,10 +280,12 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     # now route through all the entries for this group (one of these will
     # be the group-specific entry)
     @sincedb.map do |identity, pos|
-      if identity.start_with?(group) && (min_value.nil? || min_value > pos)
-        min_value = pos
-      end
-      min_map[identity] = pos
+      if identity.start_with?(group) && group != identity
+        min_map[identity] = pos
+        if (min_value.nil? || min_value > pos)
+          min_value = pos
+        end     
+      end      
     end 
 
     @logger.debug("Got sincedb #{group} as #{min_value} -> #{min_map}")

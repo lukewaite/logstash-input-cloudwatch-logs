@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- from ruby-maven gem -->
+<extensions>
+  <extension>
+    <groupId>org.torquebox.mojo</groupId>
+    <artifactId>mavengem-wagon</artifactId>
+    <version>0.2.1</version>
+  </extension>
+  <extension>
+    <groupId>io.takari.polyglot</groupId>
+    <artifactId>polyglot-ruby</artifactId>
+    <version>0.1.18</version>
+  </extension>
+</extensions>

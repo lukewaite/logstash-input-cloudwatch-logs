@@ -1,4 +1,5 @@
 # encoding: utf-8
+require 'spec_helper'
 require 'logstash/devutils/rspec/spec_helper'
 require 'logstash/inputs/cloudwatch_logs'
 require 'aws-sdk-resources'
@@ -83,14 +84,97 @@ describe LogStash::Inputs::CloudWatch_Logs do
     end
   end
 
-  describe '#determine_start_position' do
-    context 'start_position set to an integer' do
-      sincedb = {}
-      subject {LogStash::Inputs::CloudWatch_Logs.new(config.merge({'start_position' => 100}))}
+  describe '#validate new stream db model' do
+    context 'simple empty model' do
+      
+      subject {LogStash::Inputs::CloudWatch_Logs.new(config.merge({
+        'start_position' => 0,
+        'sincedb_path' => Dir.mktmpdir("rspec-")  + '/sincedb.txt'
+        }))}
+    
+      it 'handle old files' do  
+        subject.register
 
-      it 'successfully parses the start position' do
-        expect {subject.determine_start_position(['test'], sincedb)}.to_not raise_error
+        puts('Testing with file: ' + subject.sincedb_path)
+        # given a file in the old "group position" format        
+        File.open(subject.sincedb_path, "w") { |f| 
+          f.write "group1 1\n"
+          f.write "group2 2\n"
+        }
+
+        # load the file
+        subject.send(:_sincedb_open)
+
+        # confirm we still get the group position (this is our fallback)
+        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group1'])
+        expect(start_time).to eq(1)
+        expect(stream_positions).to eq({})  
+
+        # confirm we still get the group position (this is our fallback)
+        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group2'])
+        expect(start_time).to eq(2)
+        expect(stream_positions).to eq({})          
       end
+
+      it 'handle new files' do  
+        subject.register
+
+        # given a file in the new "group:stream position" format        
+        File.open(subject.sincedb_path, "w") { |f| 
+          f.write "group1:stream1 2\n"
+          f.write "group1:stream2 1\n"
+          f.write "group2:stream1 3\n"
+        }
+
+        # load the file
+        subject.send(:_sincedb_open)
+
+        # confirm we still get the group position (this is our fallback)
+        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group1'])
+        expect(start_time).to eq(1)
+        expect(stream_positions).to eq({"group1:stream1"=>2, "group1:stream2"=>1})  
+
+        # confirm we still get the group position (this is our fallback)
+        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group2'])
+        expect(start_time).to eq(3)
+        expect(stream_positions).to eq({"group2:stream1"=>3})          
+      end      
+
+      it 'select the correct group when asked' do
+        subject.register
+        
+        # given we set some times
+        subject.send(:set_sincedb_value, *['group1', 'stream1', 2])
+        subject.send(:set_sincedb_value, *['group1', 'stream2', 1])
+        subject.send(:set_sincedb_value, *['group2', 'stream3', 3])
+
+      
+        # then these are the times we get when we look for one group
+        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group1'])
+        expect(start_time).to eq(1)
+        expect(stream_positions).to eq({'group1:stream1' => 2, 'group1:stream2' => 1})        
+      end
+
+      it 'select the default time when asked' do
+        subject.register
+        
+        # given we set some times
+        subject.send(:set_sincedb_value, *['group1', 'stream1', 2])
+        subject.send(:set_sincedb_value, *['group1', 'stream2', 1])
+        subject.send(:set_sincedb_value, *['group2', 'stream3', 3])
+
+        # then these are the times we get looking for a new group
+        now_time = Time.now.getutc.to_i * 1000
+        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['groupXXX'])
+
+        # the default time is now, for testing we can assume within a second is close enough
+        ts_delta = now_time - start_time
+        expect(ts_delta).to be < 1000
+        # the stream positions should be empty
+        expect(stream_positions).to eq({})        
+      end     
+      
+      
     end
   end
 
