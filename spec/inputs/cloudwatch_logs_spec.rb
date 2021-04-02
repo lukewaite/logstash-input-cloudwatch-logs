@@ -1,5 +1,4 @@
 # encoding: utf-8
-require 'spec_helper'
 require 'logstash/devutils/rspec/spec_helper'
 require 'logstash/inputs/cloudwatch_logs'
 require 'aws-sdk-resources'
@@ -188,5 +187,97 @@ describe LogStash::Inputs::CloudWatch_Logs do
   #     expect(subject.find_log_groups).to eq(['sample-log-group-1', 'sample-log-group-2'])
   #   end
   # end
+
+  describe '#process_log' do
+    context 'with an array in the config' do
+      subject {LogStash::Inputs::CloudWatch_Logs.new(config.merge({
+        'start_position' => 0,
+        'sincedb_path' => Dir.mktmpdir("rspec-")  + '/sincedb.txt'
+        }))}
+
+      it 'process a log event - event is new' do
+        subject.register
+
+        # given these times
+        old_timestamp = 1
+        new_timestamp = 2
+
+        # given we know about this group and stream
+        group = 'groupA'      
+        subject.send(:set_sincedb_value, *['groupA', 'streamX', old_timestamp])
+        start_time, stream_positions = subject.send(:get_sincedb_group_values, *[group])
+
+
+        # given we got the message for this group, for the known stream
+        # and where the record is "new enough"
+        log = Aws::CloudWatchLogs::Types::FilteredLogEvent.new()
+        log.message = 'this be the verse'
+        log.timestamp = new_timestamp
+        log.ingestion_time = 123
+        log.log_stream_name = 'streamX'
+
+        # when we send the log (assuming we have a queue)
+        queue = []
+        subject.instance_variable_set(:@queue, queue)
+
+        subject.send(:process_log, *[log, group, stream_positions])
+
+        # then a message was sent to the queue
+        expect(queue.length).to eq(1)
+        expect(queue[0].get('[@timestamp]').to_iso8601).to eq('1970-01-01T00:00:00.002Z')
+        expect(queue[0].get('[message]')).to eq('this be the verse')
+        expect(queue[0].get('[cloudwatch_logs][log_group]')).to eq('groupA')
+        expect(queue[0].get('[cloudwatch_logs][log_stream]')).to eq('streamX')
+        expect(queue[0].get('[cloudwatch_logs][ingestion_time]').to_iso8601).to eq('1970-01-01T00:00:00.123Z')
+
+        # then the timestamp should have been updated
+        start_time, stream_positions = subject.send(:get_sincedb_group_values, *[group])
+        # and the new start time is 1 millisecond after the message time
+        expect(start_time).to eq(new_timestamp + 1)
+        expect(stream_positions).to eq({group + ':streamX' => new_timestamp + 1})   
+
+      end
+    
+    
+
+      it 'process a log event - event is old' do
+        subject.register
+
+        # given these times
+        old_timestamp = 2
+        new_timestamp = 1
+
+        # given we know about this group and stream
+        group = 'groupA'      
+        subject.send(:set_sincedb_value, *[group, 'streamX', old_timestamp])
+        start_time, stream_positions = subject.send(:get_sincedb_group_values, *[group])
+
+        
+
+        # given we got the message for this group, for the known stream
+        # and where the record is "new enough"
+        log = Aws::CloudWatchLogs::Types::FilteredLogEvent.new()
+        log.message = 'this be the verse'
+        log.timestamp = new_timestamp
+        log.ingestion_time = 123
+        log.log_stream_name = 'streamX'
+
+        # when we send the log (assuming we have a queue)
+        queue = []
+        subject.instance_variable_set(:@queue, queue)
+
+        subject.send(:process_log, *[log, group, stream_positions])
+
+        # then no message was sent to the queue
+        expect(queue.length).to eq(0)
+
+        # then the timestamp should not have been updated
+        start_time, stream_positions = subject.send(:get_sincedb_group_values, *[group])
+        # and the new start time is 1 millisecond after the message time
+        expect(start_time).to eq(old_timestamp)
+        expect(stream_positions).to eq({group + ':streamX' => old_timestamp})   
+      end    
+    end
+  end    
 
 end
