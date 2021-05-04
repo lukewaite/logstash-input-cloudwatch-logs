@@ -44,6 +44,11 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   # Decide if log_group is a prefix or an absolute name
   config :log_group_prefix, :validate => :boolean, :default => false
 
+  # Decide if present, then the results of the log group query are filtered again
+  # to limit to these values. Only applicable if log_group_prefix = true 
+  config :log_group_suffix, :validate => :string, :list => true, :default => nil  
+  config :negate_log_group_suffix, :validate => :boolean, :default => false
+
   # When a new log group is encountered at initial plugin start (not already in
   # sincedb), allow configuration to specify where to begin ingestion on this group.
   # Valid options are: `beginning`, `end`, or an integer, representing number of
@@ -139,7 +144,12 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
       @log_group.each do |group|
         loop do
           log_groups = @cloudwatch.describe_log_groups(log_group_name_prefix: group, next_token: next_token)
-          groups += log_groups.log_groups.map {|n| n.log_group_name}
+          # if we have no suffix setting, or if the candidate group name ends with the suffix
+          # we use it
+          groups += log_groups.log_groups            
+            .select { |n| @log_group_suffix.nil?  || (n.log_group_name.end_with?(*@log_group_suffix) ^ @negate_log_group_suffix)}
+            .map {|n| n.log_group_name}
+          
           next_token = log_groups.next_token
           @logger.debug("found #{log_groups.log_groups.length} log groups matching prefix #{group}")
           break if next_token.nil?
