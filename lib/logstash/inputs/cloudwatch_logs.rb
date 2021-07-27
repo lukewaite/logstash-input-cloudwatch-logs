@@ -232,6 +232,10 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
         @queue << event
         set_sincedb_value(group, log.log_stream_name, log.timestamp + 1 )
       end
+
+      # prune old records
+      prune_since_db_stream(group)
+
     end
   end # def process_log
 
@@ -266,10 +270,6 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     # the per-stream level
     @sincedb[identify(group, log_stream_name)] = timestamp
 
-    # the overall group high water mark
-    # first prune anything too old
-    prune_since_db_stream(group)
-
     current_pos = @sincedb.fetch(group, 0)
     if current_pos.is_a? String 
       current_pos = current_pos.to_i
@@ -286,9 +286,25 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   private
   def prune_since_db_stream(group)
     purge_before = (DateTime.now.strftime('%Q').to_i - (3600 * 1000 * @prune_since_db_stream_hours))        
-    @sincedb.each do |k,v|      
-      if is_stream_identifier(k) && k.start_with?(group) &&  @sincedb[k] <= purge_before
-        @sincedb.delete(k)
+    
+    # drop the group date if it's too old
+    should_purge_group_count =  @sincedb.fetch(group, 0)  <= purge_before
+    if should_purge_group_count
+      @sincedb.delete(group)
+    end
+    
+    # now loop through all the streams for this group
+    @sincedb.clone.each do |k,v|      
+      if is_stream_identifier(k) && k.start_with?(group)
+        # if the stream is too old we purge it
+        if @sincedb[k] <= purge_before
+          @sincedb.delete(k)
+        # otherwise it's ok, and we've wiped the group
+        # so use this as the group date if we still don't have a group  date
+        # or if the stream date is newer than the group date
+        elsif should_purge_group_count && (!@sincedb.key? group || @sincedb[k] > @sincedb[group])
+            @sincedb[group] = @sincedb[k]
+        end 
       end
     end    
   end  

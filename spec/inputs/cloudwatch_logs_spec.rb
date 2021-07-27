@@ -220,6 +220,8 @@ describe LogStash::Inputs::CloudWatch_Logs do
         
         # now, write to the stream - this will purge old data
         subject.send(:set_sincedb_value, *['group2', 'stream2', now])
+        subject.send(:prune_since_db_stream, *['group2'])
+
 
         # and confirm the purge happened
         # group 1 wasn't updated, so it stays purged
@@ -238,20 +240,43 @@ describe LogStash::Inputs::CloudWatch_Logs do
         })          
       end      
       
+      it 'purge old stream data - check group reset ok' do  
+        subject.register
+
+        puts('Testing with file: ' + subject.sincedb_path)
+
+
+        now = DateTime.now.strftime('%Q').to_i 
+        one_hour_ago = now - 3600 * 1000
+        two_hours_ago = now - 2 * 3600  * 1000
+
+        # given a file in the new "group:stream position" format        
+        File.open(subject.sincedb_path, "w") { |f| 
+          f.write "group1:stream1 #{one_hour_ago}\n"
+          f.write "group1:stream2 #{two_hours_ago}\n"
+          f.write "group1 #{two_hours_ago}\n"
+          f.write "group2 #{now}\n"
+          f.write "group2:stream1 #{one_hour_ago}\n"
+        }
+
+        # load the file
+        subject.send(:_sincedb_open)
+
+        # given a purge
+        subject.send(:prune_since_db_stream, *['group1'])
+        subject.send(:prune_since_db_stream, *['group2'])
+
+        # then this group's group was too old and should reset to the latest 
+        # one we are accepting        
+        expect(subject.instance_eval {@sincedb['group1']}).to eq(one_hour_ago)
+
+        # then this group's time was fine, and alter than the stream one
+        expect(subject.instance_eval {@sincedb['group2']}).to eq(now)
+  
+      end           
       
     end
   end
-
-  # describe '#find_log_groups with prefix true' do
-  #   subject {LogStash::Inputs::CloudWatch_Logs.new(config.merge({'log_group_prefix' => true}))}
-  #
-  #   before(:each) {subject.register}
-  #
-  #   it 'should create list of prefixes' do
-  #     expect_any_instance_of(Aws::CloudWatchLogs::Resource).to receive(:describe_log_groups).and_return({'log_groups' => [{'log_group_name' => '1'},{'log_group_name' => '2'}]})
-  #     expect(subject.find_log_groups).to eq(['sample-log-group-1', 'sample-log-group-2'])
-  #   end
-  # end
 
   describe '#process_log' do
     context 'with an array in the config' do
