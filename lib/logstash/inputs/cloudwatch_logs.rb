@@ -36,6 +36,10 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   # sincedb files to some path matching "$HOME/.sincedb*"
   # Should be a path with filename not just a directory.
   config :sincedb_path, :validate => :string, :default => nil
+  # the stream data grows over time, so we drop it after a configurable time
+  # but only after a new value comes in for some group (i.e. we purge one group 
+  # at a time)
+  config :prune_since_db_stream_hours, :validate => :number, :default => 24
 
   # Interval to wait between to check the file list again after a run is finished.
   # Value is in seconds.
@@ -246,6 +250,11 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   end
 
   private
+  def is_stream_identifier(sincedb_name) 
+    return sincedb_name.include? ":"
+  end
+
+  private
   def set_sincedb_value(group, log_stream_name, timestamp)
     @logger.debug("Setting sincedb #{group}:#{log_stream_name} -> #{timestamp}")    
 
@@ -258,6 +267,9 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     @sincedb[identify(group, log_stream_name)] = timestamp
 
     # the overall group high water mark
+    # first prune anything too old
+    prune_since_db_stream(group)
+
     current_pos = @sincedb.fetch(group, 0)
     if current_pos.is_a? String 
       current_pos = current_pos.to_i
@@ -268,6 +280,18 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     end
 
   end # def set_sincedb_value
+
+  # find any stream records in this file, for this given group, and prune them if they're older
+  # than our prune data
+  private
+  def prune_since_db_stream(group)
+    purge_before = (DateTime.now.strftime('%Q').to_i - (3600 * 1000 * @prune_since_db_stream_hours))        
+    @sincedb.each do |k,v|      
+      if is_stream_identifier(k) && k.start_with?(group) &&  @sincedb[k] <= purge_before
+        @sincedb.delete(k)
+      end
+    end    
+  end  
 
 
 

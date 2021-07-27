@@ -3,6 +3,7 @@ require 'logstash/devutils/rspec/spec_helper'
 require 'logstash/inputs/cloudwatch_logs'
 require 'aws-sdk-resources'
 require 'aws-sdk'
+require "logstash/timestamp"
 
 describe LogStash::Inputs::CloudWatch_Logs do
   let(:config) {
@@ -88,7 +89,8 @@ describe LogStash::Inputs::CloudWatch_Logs do
       
       subject {LogStash::Inputs::CloudWatch_Logs.new(config.merge({
         'start_position' => 0,
-        'sincedb_path' => Dir.mktmpdir("rspec-")  + '/sincedb.txt'
+        'sincedb_path' => Dir.mktmpdir("rspec-")  + '/sincedb.txt',
+        'prune_since_db_stream_hours' => 2
         }))}
     
       it 'handle old files' do  
@@ -142,28 +144,36 @@ describe LogStash::Inputs::CloudWatch_Logs do
       it 'select the correct group when asked' do
         subject.register
         
+        t1 = DateTime.now.strftime('%Q').to_i
+        t2 = t1 + 1000
+        t3 = t1 + 2000
+        
+        puts("t1: #{t1}")
+
         # given we set some times
-        subject.send(:set_sincedb_value, *['group1', 'stream1', 2])
-        subject.send(:set_sincedb_value, *['group1', 'stream2', 1])
-        subject.send(:set_sincedb_value, *['group2', 'stream3', 3])
+        subject.send(:set_sincedb_value, *['group1', 'stream1', t2])
+        subject.send(:set_sincedb_value, *['group1', 'stream2', t1])
+        subject.send(:set_sincedb_value, *['group2', 'stream3', t3])
 
       
         # then these are the times we get when we look for one group
         start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group1'])
-        expect(start_time).to eq(1)
-        expect(stream_positions).to eq({'group1:stream1' => 2, 'group1:stream2' => 1})        
+        expect(start_time).to eq(t1)
+        expect(stream_positions).to eq({'group1:stream1' => t2, 'group1:stream2' => t1})        
       end
 
       it 'select the default time when asked' do
         subject.register
-        
+        t1 = DateTime.now.strftime('%Q').to_i 
+        t2 = t1 + 1000
+        t3 = t1 + 2000        
         # given we set some times
-        subject.send(:set_sincedb_value, *['group1', 'stream1', 2])
-        subject.send(:set_sincedb_value, *['group1', 'stream2', 1])
-        subject.send(:set_sincedb_value, *['group2', 'stream3', 3])
+        subject.send(:set_sincedb_value, *['group1', 'stream1', t2])
+        subject.send(:set_sincedb_value, *['group1', 'stream2', t1])
+        subject.send(:set_sincedb_value, *['group2', 'stream3', t3])
 
         # then these are the times we get looking for a new group
-        now_time = Time.now.getutc.to_i * 1000
+        now_time = DateTime.now.strftime('%Q').to_i 
         start_time, stream_positions = subject.send(:get_sincedb_group_values, *['groupXXX'])
 
         # the default time is now, for testing we can assume within a second is close enough
@@ -172,6 +182,61 @@ describe LogStash::Inputs::CloudWatch_Logs do
         # the stream positions should be empty
         expect(stream_positions).to eq({})        
       end     
+      
+
+      it 'purge old stream data' do  
+        subject.register
+
+        puts('Testing with file: ' + subject.sincedb_path)
+
+
+        now = DateTime.now.strftime('%Q').to_i 
+        one_hour_ago = now - 3600 * 1000
+        two_hours_ago = now - 2 * 3600  * 1000
+
+        # given a file in the new "group:stream position" format        
+        File.open(subject.sincedb_path, "w") { |f| 
+          f.write "group1:stream1 #{one_hour_ago}\n"
+          f.write "group1:stream2 #{two_hours_ago}\n"
+          f.write "group2:stream1 #{two_hours_ago}\n"
+        }
+
+        # load the file
+        subject.send(:_sincedb_open)
+
+        # confirm our test data is correct
+        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group1'])
+        expect(start_time).to eq(two_hours_ago)
+        expect(stream_positions).to eq({
+          'group1:stream1' => one_hour_ago,
+          'group1:stream2' => two_hours_ago
+        })  
+
+        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group2'])
+        expect(start_time).to eq(two_hours_ago)
+        expect(stream_positions).to eq({
+          'group2:stream1' => two_hours_ago
+        })    
+        
+        # now, write to the stream - this will purge old data
+        subject.send(:set_sincedb_value, *['group2', 'stream2', now])
+
+        # and confirm the purge happened
+        # group 1 wasn't updated, so it stays purged
+        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group1'])
+        expect(start_time).to eq(two_hours_ago)
+        expect(stream_positions).to eq({
+          'group1:stream1' => one_hour_ago,
+          'group1:stream2' => two_hours_ago
+        })  
+
+        # group2 will have been
+        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group2'])
+        expect(start_time).to eq(now)
+        expect(stream_positions).to eq({
+          'group2:stream2' => now
+        })          
+      end      
       
       
     end
@@ -199,8 +264,8 @@ describe LogStash::Inputs::CloudWatch_Logs do
         subject.register
 
         # given these times
-        old_timestamp = 1
-        new_timestamp = 2
+        old_timestamp = DateTime.now.strftime('%Q').to_i
+        new_timestamp = old_timestamp + 1000
 
         # given we know about this group and stream
         group = 'groupA'      
@@ -224,7 +289,9 @@ describe LogStash::Inputs::CloudWatch_Logs do
 
         # then a message was sent to the queue
         expect(queue.length).to eq(1)
-        expect(queue[0].get('[@timestamp]').to_iso8601).to eq('1970-01-01T00:00:00.002Z')
+
+        
+        expect(queue[0].get('[@timestamp]')).to eq(LogStash::Timestamp.at(new_timestamp.to_i / 1000, (new_timestamp.to_i % 1000) * 1000))
         expect(queue[0].get('[message]')).to eq('this be the verse')
         expect(queue[0].get('[cloudwatch_logs][log_group]')).to eq('groupA')
         expect(queue[0].get('[cloudwatch_logs][log_stream]')).to eq('streamX')
@@ -244,8 +311,8 @@ describe LogStash::Inputs::CloudWatch_Logs do
         subject.register
 
         # given these times
-        old_timestamp = 2
-        new_timestamp = 1
+        old_timestamp = DateTime.now.strftime('%Q').to_i
+        new_timestamp = old_timestamp - 1000
 
         # given we know about this group and stream
         group = 'groupA'      
