@@ -6,6 +6,11 @@ require 'aws-sdk'
 require "logstash/timestamp"
 
 describe LogStash::Inputs::CloudWatch_Logs do
+  def parse_time(data)
+    LogStash::Timestamp.at(data.to_i / 1000, (data.to_i % 1000) * 1000)
+  end # def parse_time
+
+
   let(:config) {
     {
         'access_key_id' => '1234',
@@ -90,7 +95,7 @@ describe LogStash::Inputs::CloudWatch_Logs do
       subject {LogStash::Inputs::CloudWatch_Logs.new(config.merge({
         'start_position' => 0,
         'sincedb_path' => Dir.mktmpdir("rspec-")  + '/sincedb.txt',
-        'prune_since_db_stream_hours' => 2
+        'prune_since_db_stream_minutes' => 2 * 60
         }))}
     
       it 'handle old files' do  
@@ -184,21 +189,25 @@ describe LogStash::Inputs::CloudWatch_Logs do
       end     
       
 
-      it 'purge old stream data' do  
+      it 'purge old stream data - general' do  
         subject.register
 
         puts('Testing with file: ' + subject.sincedb_path)
 
 
         now = DateTime.now.strftime('%Q').to_i 
-        one_hour_ago = now - 3600 * 1000
-        two_hours_ago = now - 2 * 3600  * 1000
+        old = now - 3600 * 1000
+        too_old = now - 2 * 3600  * 1000
+
+        puts ("now: #{now} #{parse_time(now)}")
+        puts ("old: #{old} #{parse_time(old)}")
+        puts ("too_old: #{too_old}  #{parse_time(too_old)}")
 
         # given a file in the new "group:stream position" format        
         File.open(subject.sincedb_path, "w") { |f| 
-          f.write "group1:stream1 #{one_hour_ago}\n"
-          f.write "group1:stream2 #{two_hours_ago}\n"
-          f.write "group2:stream1 #{two_hours_ago}\n"
+          f.write "group1:stream1 #{old}\n"
+          f.write "group1:stream2 #{too_old}\n"
+          f.write "group2:stream1 #{too_old}\n"
         }
 
         # load the file
@@ -206,40 +215,41 @@ describe LogStash::Inputs::CloudWatch_Logs do
 
         # confirm our test data is correct
         start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group1'])
-        expect(start_time).to eq(two_hours_ago)
+        expect(start_time).to eq(too_old)
         expect(stream_positions).to eq({
-          'group1:stream1' => one_hour_ago,
-          'group1:stream2' => two_hours_ago
+          'group1:stream1' => old,
+          'group1:stream2' => too_old
         })  
 
         start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group2'])
-        expect(start_time).to eq(two_hours_ago)
+        expect(start_time).to eq(too_old)
         expect(stream_positions).to eq({
-          'group2:stream1' => two_hours_ago
+          'group2:stream1' => too_old
         })    
         
-        # now, write to the stream - this will purge old data
+        # now, write to the stream - this will purge old data in this group
         subject.send(:set_sincedb_value, *['group2', 'stream2', now])
         subject.send(:prune_since_db_stream, *['group2'])
 
 
         # and confirm the purge happened
-        # group 1 wasn't updated, so it stays purged
+        # group 1 wasn't updated, so it stays unpurged
         start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group1'])
-        expect(start_time).to eq(two_hours_ago)
+        expect(start_time).to eq(too_old)
         expect(stream_positions).to eq({
-          'group1:stream1' => one_hour_ago,
-          'group1:stream2' => two_hours_ago
+          'group1:stream1' => old,
+          'group1:stream2' => too_old
         })  
 
-        # group2 will have been
+        # group2 will have been updated and old data purged
         start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group2'])
         expect(start_time).to eq(now)
         expect(stream_positions).to eq({
           'group2:stream2' => now
         })          
-      end      
-      
+      end     
+            
+            
       it 'purge old stream data - check group reset ok' do  
         subject.register
 
@@ -247,30 +257,42 @@ describe LogStash::Inputs::CloudWatch_Logs do
 
 
         now = DateTime.now.strftime('%Q').to_i 
-        one_hour_ago = now - 3600 * 1000
-        two_hours_ago = now - 2 * 3600  * 1000
+        recent = now - 1800 * 1000
+        old = now - 3600 * 1000
+        too_old = now - 2 * 3600  * 1000
+
+        puts ("now:     #{now} #{parse_time(now)}")
+        puts ("recent:  #{recent} #{parse_time(recent)}")
+        puts ("old:     #{old} #{parse_time(old)}")
+        puts ("too_old: #{too_old} #{parse_time(too_old)}")
+
 
         # given a file in the new "group:stream position" format        
         File.open(subject.sincedb_path, "w") { |f| 
-          f.write "group1:stream1 #{one_hour_ago}\n"
-          f.write "group1:stream2 #{two_hours_ago}\n"
-          f.write "group1 #{two_hours_ago}\n"
-          f.write "group2 #{now}\n"
-          f.write "group2:stream1 #{one_hour_ago}\n"
+          f.write "group1:stream1 #{too_old}\n"
+          f.write "group1:stream2 #{too_old}\n"
+          f.write "group1 #{too_old}\n"
+          f.write "group2 #{too_old}\n"
+          f.write "group2:stream1 #{too_old}\n"
         }
 
         # load the file
         subject.send(:_sincedb_open)
 
+        # given we processed data for now
+        subject.send(:set_sincedb_value, *['group1', 'stream1', too_old])
+        subject.send(:set_sincedb_value, *['group2', 'stream1', now])
+
         # given a purge
         subject.send(:prune_since_db_stream, *['group1'])
         subject.send(:prune_since_db_stream, *['group2'])
 
-        # then this group's group was too old and should reset to the latest 
-        # one we are accepting        
-        expect(subject.instance_eval {@sincedb['group1']}).to eq(one_hour_ago)
+        puts ("@sincedb #{subject.instance_eval {@sincedb}}")
+        # This won't change
+        expect(subject.instance_eval {@sincedb['group1']}).to eq(too_old)
 
-        # then this group's time was fine, and alter than the stream one
+        # The latest date in this group is 2 hours after "too old" so 
+        # we update it
         expect(subject.instance_eval {@sincedb['group2']}).to eq(now)
   
       end           

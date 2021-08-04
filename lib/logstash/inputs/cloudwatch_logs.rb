@@ -39,7 +39,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   # the stream data grows over time, so we drop it after a configurable time
   # but only after a new value comes in for some group (i.e. we purge one group 
   # at a time)
-  config :prune_since_db_stream_hours, :validate => :number, :default => 24
+  config :prune_since_db_stream_minutes, :validate => :number, :default => 60
 
   # Interval to wait between to check the file list again after a run is finished.
   # Value is in seconds.
@@ -67,6 +67,11 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     @logger.debug("Registering cloudwatch_logs input", :log_group => @log_group)
     settings = defined?(LogStash::SETTINGS) ? LogStash::SETTINGS : nil
     @sincedb = {}
+    # maps the earliest transaction in the session for each 
+    # entry in the sincedb - this is reset each time we do a 
+    # search and is used when purging
+    @earliest_event_in_session = {}
+
 
     check_start_position_validity
 
@@ -196,12 +201,20 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
           :interleaved => true,
           :next_token => next_token
       }
-      resp = @cloudwatch.filter_log_events(params)
+      # reset the earliest time for the group
+      @earliest_event_in_session.delete(group)         
 
+      resp = @cloudwatch.filter_log_events(params)
+    
+      actually_processed_count = 0
       resp.events.each do |event|
-        process_log(event, group, stream_positions)
+        was_processed = process_log(event, group, stream_positions)
+        was_processed && actually_processed_count = actually_processed_count + 1
       end
 
+      resp.events.length() > 0 &&  @logger.debug("Queried logs for #{group} from #{parse_time(start_time)} found #{resp.events.length()} events, processed #{actually_processed_count}")
+      # prune old records before saving
+      prune_since_db_stream(group)
       _sincedb_write
 
       next_token = resp.next_token
@@ -211,7 +224,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     @priority << group
   end #def process_group
 
-  # def process_log
+  # def process_log - returns true if the message was actually processed
   private
   def process_log(log, group, stream_positions)
     identity = identify(group, log.log_stream_name)
@@ -231,11 +244,10 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
 
         @queue << event
         set_sincedb_value(group, log.log_stream_name, log.timestamp + 1 )
+        return true
       end
 
-      # prune old records
-      prune_since_db_stream(group)
-
+      return false
     end
   end # def process_log
 
@@ -258,37 +270,48 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     return sincedb_name.include? ":"
   end
 
+  # Sets the value for the stream
+  # When this is complete the group value will be the maximum value across streams
+  # This will also record the earliest time processed in the current session
   private
   def set_sincedb_value(group, log_stream_name, timestamp)
     @logger.debug("Setting sincedb #{group}:#{log_stream_name} -> #{timestamp}")    
 
     # make sure this is an integer
-    if timestamp.is_a? String 
-      timestamp = timestamp.to_i
-    end
+    timestamp = timestamp.to_i
 
     # the per-stream level
     @sincedb[identify(group, log_stream_name)] = timestamp
 
-    current_pos = @sincedb.fetch(group, 0)
-    if current_pos.is_a? String 
-      current_pos = current_pos.to_i
-    end
+    current_pos = @sincedb.fetch(group, 0).to_i
 
     if current_pos < timestamp
       @sincedb[group] = timestamp
     end
 
+    puts ("Before for #{group} : #{@earliest_event_in_session}")
+    # set the earliest timestamp for this session for this group
+    if !@earliest_event_in_session.key? group || @earliest_event_in_session[group].to_i > timestamp
+      @earliest_event_in_session[group] = timestamp
+    end 
+    puts ("After for  #{group} : #{@earliest_event_in_session}")    
+
   end # def set_sincedb_value
 
   # find any stream records in this file, for this given group, and prune them if they're older
-  # than our prune data
+  # than our prune data. 
+  # Prune time is considered the earliest_event_in_session for this group, minus the lookback
+  # When this is complete, the "group" entry will be the maximum time across all streams
   private
   def prune_since_db_stream(group)
-    purge_before = (DateTime.now.strftime('%Q').to_i - (3600 * 1000 * @prune_since_db_stream_hours))        
-    
+    # get the earliest - actually processed - timestamp in the group
+    # we purge the time before this
+    if !@earliest_event_in_session.key? group
+      return
+    end
+    purge_before = (@earliest_event_in_session[group] - (60 * 1000 * @prune_since_db_stream_minutes))  
     # drop the group date if it's too old
-    should_purge_group_count =  @sincedb.fetch(group, 0)  <= purge_before
+    should_purge_group_count =  @sincedb.fetch(group, 0).to_i  <= purge_before
     if should_purge_group_count
       @sincedb.delete(group)
     end
@@ -296,20 +319,19 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     # now loop through all the streams for this group
     @sincedb.clone.each do |k,v|      
       if is_stream_identifier(k) && k.start_with?(group)
+        stream_time = v.to_i
         # if the stream is too old we purge it
-        if @sincedb[k] <= purge_before
+        if stream_time <= purge_before
           @sincedb.delete(k)
         # otherwise it's ok, and we've wiped the group
         # so use this as the group date if we still don't have a group  date
         # or if the stream date is newer than the group date
-        elsif should_purge_group_count && (!@sincedb.key? group || @sincedb[k] > @sincedb[group])
-            @sincedb[group] = @sincedb[k]
+        elsif should_purge_group_count && (!@sincedb.key? group || stream_time > @sincedb[group].to_i)
+            @sincedb[group] = stream_time
         end 
       end
     end    
   end  
-
-
 
   # scan over all the @sincedb entries for this group and pick the _earliest_ value
   # Returns a list of [earliest last position in group, the last position of each log stream in that group ]
@@ -325,7 +347,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     end
 
     ## assume the group level min value
-    min_value = @sincedb[group]
+    min_value = @sincedb[group].to_i
     min_map = {}
     # now route through all the entries for this group (one of these will
     # be the group-specific entry)
@@ -350,7 +372,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     when 'beginning'
       return 0
     when 'end'
-      return DateTime.now.strftime('%Q')
+      return DateTime.now.strftime('%Q').to_i
     else
       return DateTime.now.strftime('%Q').to_i - (@start_position * 1000)
     end # case @start_position    
