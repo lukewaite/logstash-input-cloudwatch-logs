@@ -392,6 +392,144 @@ describe LogStash::Inputs::CloudWatch_Logs do
         expect(stream_positions).to eq({group + ':streamX' => old_timestamp})   
       end    
     end
+
+    context 'with reload_last_moment set true' do
+      subject {LogStash::Inputs::CloudWatch_Logs.new(config.merge({
+        'start_position' => 0,
+        'sincedb_path' => Dir.mktmpdir("rspec-")  + '/sincedb.txt',
+        'reload_last_moment' => true
+        }))}
+
+      it 'process a log event - event is new' do
+        subject.register
+
+        # given these times
+        old_timestamp = 1
+        new_timestamp = 2
+
+        # given we know about this group and stream
+        group = 'groupA'      
+        subject.send(:set_sincedb_value, *['groupA', 'streamX', old_timestamp])
+        start_time, stream_positions = subject.send(:get_sincedb_group_values, *[group])
+
+
+        # given we got the message for this group, for the known stream
+        # and where the record is "new enough"
+        log = Aws::CloudWatchLogs::Types::FilteredLogEvent.new()
+        log.message = 'this be the verse'
+        log.timestamp = new_timestamp
+        log.ingestion_time = 123
+        log.log_stream_name = 'streamX'
+
+        # when we send the log (assuming we have a queue)
+        queue = []
+        subject.instance_variable_set(:@queue, queue)
+
+        subject.send(:process_log, *[log, group, stream_positions])
+
+        # then a message was sent to the queue
+        expect(queue.length).to eq(1)
+        expect(queue[0].get('[@timestamp]').to_iso8601).to eq('1970-01-01T00:00:00.002Z')
+        expect(queue[0].get('[message]')).to eq('this be the verse')
+        expect(queue[0].get('[cloudwatch_logs][log_group]')).to eq('groupA')
+        expect(queue[0].get('[cloudwatch_logs][log_stream]')).to eq('streamX')
+        expect(queue[0].get('[cloudwatch_logs][ingestion_time]').to_iso8601).to eq('1970-01-01T00:00:00.123Z')
+
+        # then the timestamp should have been updated
+        start_time, stream_positions = subject.send(:get_sincedb_group_values, *[group])
+        
+        # and the new start time is the message time
+        expect(start_time).to eq(new_timestamp)
+        expect(stream_positions).to eq({group + ':streamX' => new_timestamp})   
+
+      end
+
+
+      it 'process a log event - event is old - using last moment' do
+        subject.register
+
+        # given we got the message for this group, for the known stream
+        # and where the record is "new enough"
+        log = Aws::CloudWatchLogs::Types::FilteredLogEvent.new()
+        log.message = 'this be the verse'
+        log.timestamp = 1
+        log.ingestion_time = 123
+        log.log_stream_name = 'streamX'
+        log.event_id = "event1"
+
+        #  given we have  last moment event file with our event in there
+        reload_last_moment_path = subject.instance_variable_get(:@reload_last_moment_path)
+        File.open(reload_last_moment_path, 'w') { |file| file.write('{"groupA.streamX": {"timestamp": 1, "events" : ["event1"]}}') }
+        subject.send(:_sincedb_open)
+
+        # given we know about this group and stream
+        group = 'groupA'      
+        subject.send(:set_sincedb_value, *['groupA', 'streamX', log.timestamp])
+        start_time, stream_positions = subject.send(:get_sincedb_group_values, *[group])
+
+        # when we send the log (assuming we have a queue)
+        queue = []
+        subject.instance_variable_set(:@queue, queue)
+        subject.send(:process_log, *[log, group, stream_positions])
+
+        # then a message was not sent to the queue
+        expect(queue.length).to eq(0)
+
+      end      
+
+      it 'process a log event - mix of old and new events - using last moment' do
+        subject.register
+
+        # given we got the message for this group, for the known stream
+        # and where the record is "new enough"
+        logAlreadyLoaded = Aws::CloudWatchLogs::Types::FilteredLogEvent.new()
+        logAlreadyLoaded.message = 'this be the verse'
+        logAlreadyLoaded.timestamp = 1
+        logAlreadyLoaded.ingestion_time = 123
+        logAlreadyLoaded.log_stream_name = 'streamX'
+        logAlreadyLoaded.event_id = "event1"
+
+        logNewWithSameOldTime = Aws::CloudWatchLogs::Types::FilteredLogEvent.new()
+        logNewWithSameOldTime.message = 'this be the verse'
+        logNewWithSameOldTime.timestamp = 1
+        logNewWithSameOldTime.ingestion_time = 123
+        logNewWithSameOldTime.log_stream_name = 'streamX'
+        logNewWithSameOldTime.event_id = "event2"        
+
+        logCompletelyNew = Aws::CloudWatchLogs::Types::FilteredLogEvent.new()
+        logCompletelyNew.message = 'this be the verse'
+        logCompletelyNew.timestamp = 2
+        logCompletelyNew.ingestion_time = 123
+        logCompletelyNew.log_stream_name = 'streamX'
+        logCompletelyNew.event_id = "event3"        
+
+        #  given we have  last moment event file with our event in there
+        reload_last_moment_path = subject.instance_variable_get(:@reload_last_moment_path)
+        File.open(reload_last_moment_path, 'w') { |file| file.write('{"groupA.streamX": {"timestamp": 1, "events" : ["event1"]}}') }
+        subject.send(:_sincedb_open)
+
+        # given we know about this group and stream
+        group = 'groupA'      
+        subject.send(:set_sincedb_value, *['groupA', 'streamX', logAlreadyLoaded.timestamp])
+        start_time, stream_positions = subject.send(:get_sincedb_group_values, *[group])
+
+        # when we send the log (assuming we have a queue)
+        queue = []
+        subject.instance_variable_set(:@queue, queue)
+
+        subject.send(:process_log, *[logAlreadyLoaded, group, stream_positions])
+        subject.send(:process_log, *[logNewWithSameOldTime, group, stream_positions])
+        subject.send(:process_log, *[logCompletelyNew, group, stream_positions])
+
+        # then a message was not sent to the queue
+        expect(queue.length).to eq(2)
+        expect(queue[0].get('[cloudwatch_logs][event_id]')).to eq('event2')
+        expect(queue[1].get('[cloudwatch_logs][event_id]')).to eq('event3')
+
+        # then save the DBs
+        subject.send(:_sincedb_write)        
+      end      
+    end
   end    
 
 end

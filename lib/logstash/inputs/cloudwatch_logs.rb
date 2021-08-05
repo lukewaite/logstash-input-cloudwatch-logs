@@ -8,6 +8,8 @@ require "stud/interval"
 require "aws-sdk"
 require "logstash/inputs/cloudwatch_logs/patch"
 require "fileutils"
+require 'logstash/inputs/last_event_tracker'
+
 
 Aws.eager_autoload!
 
@@ -59,6 +61,15 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   # seconds before now to read back from.
   config :start_position, :default => 'beginning'
 
+  # If false then the loader ignores the last millisecond when searching for new log messages
+  # otherwise it will include the last moment
+  config :reload_last_moment, :validate => :boolean, :default => false
+
+  # If not set, will default to @sincedb.lastEvent
+  config :reload_last_moment_path, :validate => :string, :default => nil
+
+  
+
 
   # def register
   public
@@ -105,8 +116,16 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
       @sincedb_path = File.join(sincedb_dir, ".sincedb_" + Digest::MD5.hexdigest(@log_group.join(",")))
 
       @logger.info("No sincedb_path set, generating one based on the log_group setting",
-                   :sincedb_path => @sincedb_path, :log_group => @log_group)
+                   :sincedb_path => @sincedb_path, :log_group => @log_group)      
     end
+
+    if @reload_last_moment
+      if !@reload_last_moment_path
+        @reload_last_moment_path = @sincedb_path + ".lastevents"
+      end
+      @logger.info("Storing last events in #{@reload_last_moment_path}")
+      @lastEventTracker = LastEventTracker.new(@reload_last_moment_path, @prune_since_db_stream_minutes)                   
+    end    
 
     @logger.info("Using sincedb_path #{@sincedb_path}")
   end #def register
@@ -229,10 +248,14 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   def process_log(log, group, stream_positions)
     identity = identify(group, log.log_stream_name)
     stream_position = stream_positions.fetch(identity, 0)
-    
     @logger.trace? && @logger.trace("Checking event time #{log.timestamp} (#{parse_time(log.timestamp)}) -> #{stream_position}")    
 
-    if log.timestamp >= stream_position
+    will_process_event = log.timestamp >= stream_position
+    if (will_process_event && @reload_last_moment) 
+      will_process_event = !@lastEventTracker.check_event_already_processed(group, log)
+    end
+
+    if will_process_event
       @logger.trace? && @logger.trace("Processing event")    
       @codec.decode(log.message.to_str) do |event|
         event.set("@timestamp", parse_time(log.timestamp))
@@ -243,7 +266,9 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
         decorate(event)
 
         @queue << event
-        set_sincedb_value(group, log.log_stream_name, log.timestamp + 1 )
+
+        next_time_increment = @reload_last_moment ? 0 : 1
+        set_sincedb_value(group, log.log_stream_name, log.timestamp + next_time_increment )
         return true
       end
 
@@ -289,12 +314,10 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
       @sincedb[group] = timestamp
     end
 
-    puts ("Before for #{group} : #{@earliest_event_in_session}")
     # set the earliest timestamp for this session for this group
     if !@earliest_event_in_session.key? group || @earliest_event_in_session[group].to_i > timestamp
       @earliest_event_in_session[group] = timestamp
     end 
-    puts ("After for  #{group} : #{@earliest_event_in_session}")    
 
   end # def set_sincedb_value
 
@@ -393,6 +416,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
       #No existing sincedb to load
       @logger.debug? && @logger.debug("_sincedb_open: error: #{@sincedb_path}: #{$!}")
     end
+    @reload_last_moment && @lastEventTracker.load
   end # def _sincedb_open
 
   private
@@ -404,6 +428,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
       # maybe it will work next time
       @logger.debug? && @logger.debug("_sincedb_write: error: #{@sincedb_path}: #{$!}")
     end
+    @reload_last_moment && @lastEventTracker.save
   end # def _sincedb_write
 
 
