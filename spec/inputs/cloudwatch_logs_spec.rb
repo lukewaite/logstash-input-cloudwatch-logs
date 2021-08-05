@@ -89,250 +89,71 @@ describe LogStash::Inputs::CloudWatch_Logs do
     end
   end
 
-  describe '#validate new stream db model' do
-    context 'simple empty model' do
-      
-      subject {LogStash::Inputs::CloudWatch_Logs.new(config.merge({
-        'start_position' => 0,
-        'sincedb_path' => Dir.mktmpdir("rspec-")  + '/sincedb.txt',
-        'prune_since_db_stream_minutes' => 2 * 60
-        }))}
-    
-      it 'handle old files' do  
-        subject.register
-
-        puts('Testing with file: ' + subject.sincedb_path)
-        # given a file in the old "group position" format        
-        File.open(subject.sincedb_path, "w") { |f| 
-          f.write "group1 1\n"
-          f.write "group2 2\n"
-        }
-
-        # load the file
-        subject.send(:_sincedb_open)
-
-        # confirm we still get the group position (this is our fallback)
-        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group1'])
-        expect(start_time).to eq(1)
-        expect(stream_positions).to eq({})  
-
-        # confirm we still get the group position (this is our fallback)
-        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group2'])
-        expect(start_time).to eq(2)
-        expect(stream_positions).to eq({})          
-      end
-
-      it 'handle new files' do  
-        subject.register
-
-        # given a file in the new "group:stream position" format        
-        File.open(subject.sincedb_path, "w") { |f| 
-          f.write "group1:stream1 2\n"
-          f.write "group1:stream2 1\n"
-          f.write "group2:stream1 3\n"
-        }
-
-        # load the file
-        subject.send(:_sincedb_open)
-
-        # confirm we still get the group position (this is our fallback)
-        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group1'])
-        expect(start_time).to eq(1)
-        expect(stream_positions).to eq({"group1:stream1"=>2, "group1:stream2"=>1})  
-
-        # confirm we still get the group position (this is our fallback)
-        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group2'])
-        expect(start_time).to eq(3)
-        expect(stream_positions).to eq({"group2:stream1"=>3})          
-      end      
-
-      it 'select the correct group when asked' do
-        subject.register
-        
-        t1 = DateTime.now.strftime('%Q').to_i
-        t2 = t1 + 1000
-        t3 = t1 + 2000
-        
-        puts("t1: #{t1}")
-
-        # given we set some times
-        subject.send(:set_sincedb_value, *['group1', 'stream1', t2])
-        subject.send(:set_sincedb_value, *['group1', 'stream2', t1])
-        subject.send(:set_sincedb_value, *['group2', 'stream3', t3])
-
-      
-        # then these are the times we get when we look for one group
-        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group1'])
-        expect(start_time).to eq(t1)
-        expect(stream_positions).to eq({'group1:stream1' => t2, 'group1:stream2' => t1})        
-      end
-
-      it 'select the default time when asked' do
-        subject.register
-        t1 = DateTime.now.strftime('%Q').to_i 
-        t2 = t1 + 1000
-        t3 = t1 + 2000        
-        # given we set some times
-        subject.send(:set_sincedb_value, *['group1', 'stream1', t2])
-        subject.send(:set_sincedb_value, *['group1', 'stream2', t1])
-        subject.send(:set_sincedb_value, *['group2', 'stream3', t3])
-
-        # then these are the times we get looking for a new group
-        now_time = DateTime.now.strftime('%Q').to_i 
-        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['groupXXX'])
-
-        # the default time is now, for testing we can assume within a second is close enough
-        ts_delta = now_time - start_time
-        expect(ts_delta).to be < 1000
-        # the stream positions should be empty
-        expect(stream_positions).to eq({})        
-      end     
-      
-
-      it 'purge old stream data - general' do  
-        subject.register
-
-        puts('Testing with file: ' + subject.sincedb_path)
-
-
-        now = DateTime.now.strftime('%Q').to_i 
-        old = now - 3600 * 1000
-        too_old = now - 2 * 3600  * 1000
-
-        puts ("now: #{now} #{parse_time(now)}")
-        puts ("old: #{old} #{parse_time(old)}")
-        puts ("too_old: #{too_old}  #{parse_time(too_old)}")
-
-        # given a file in the new "group:stream position" format        
-        File.open(subject.sincedb_path, "w") { |f| 
-          f.write "group1:stream1 #{old}\n"
-          f.write "group1:stream2 #{too_old}\n"
-          f.write "group2:stream1 #{too_old}\n"
-        }
-
-        # load the file
-        subject.send(:_sincedb_open)
-
-        # confirm our test data is correct
-        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group1'])
-        expect(start_time).to eq(too_old)
-        expect(stream_positions).to eq({
-          'group1:stream1' => old,
-          'group1:stream2' => too_old
-        })  
-
-        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group2'])
-        expect(start_time).to eq(too_old)
-        expect(stream_positions).to eq({
-          'group2:stream1' => too_old
-        })    
-        
-        # now, write to the stream - this will purge old data in this group
-        subject.send(:set_sincedb_value, *['group2', 'stream2', now])
-        subject.send(:prune_since_db_stream, *['group2'])
-
-
-        # and confirm the purge happened
-        # group 1 wasn't updated, so it stays unpurged
-        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group1'])
-        expect(start_time).to eq(too_old)
-        expect(stream_positions).to eq({
-          'group1:stream1' => old,
-          'group1:stream2' => too_old
-        })  
-
-        # group2 will have been updated and old data purged
-        start_time, stream_positions = subject.send(:get_sincedb_group_values, *['group2'])
-        expect(start_time).to eq(now)
-        expect(stream_positions).to eq({
-          'group2:stream2' => now
-        })          
-      end     
-            
-            
-      it 'purge old stream data - check group reset ok' do  
-        subject.register
-
-        puts('Testing with file: ' + subject.sincedb_path)
-
-
-        now = DateTime.now.strftime('%Q').to_i 
-        recent = now - 1800 * 1000
-        old = now - 3600 * 1000
-        too_old = now - 2 * 3600  * 1000
-
-        puts ("now:     #{now} #{parse_time(now)}")
-        puts ("recent:  #{recent} #{parse_time(recent)}")
-        puts ("old:     #{old} #{parse_time(old)}")
-        puts ("too_old: #{too_old} #{parse_time(too_old)}")
-
-
-        # given a file in the new "group:stream position" format        
-        File.open(subject.sincedb_path, "w") { |f| 
-          f.write "group1:stream1 #{too_old}\n"
-          f.write "group1:stream2 #{too_old}\n"
-          f.write "group1 #{too_old}\n"
-          f.write "group2 #{too_old}\n"
-          f.write "group2:stream1 #{too_old}\n"
-        }
-
-        # load the file
-        subject.send(:_sincedb_open)
-
-        # given we processed data for now
-        subject.send(:set_sincedb_value, *['group1', 'stream1', too_old])
-        subject.send(:set_sincedb_value, *['group2', 'stream1', now])
-
-        # given a purge
-        subject.send(:prune_since_db_stream, *['group1'])
-        subject.send(:prune_since_db_stream, *['group2'])
-
-        puts ("@sincedb #{subject.instance_eval {@sincedb}}")
-        # This won't change
-        expect(subject.instance_eval {@sincedb['group1']}).to eq(too_old)
-
-        # The latest date in this group is 2 hours after "too old" so 
-        # we update it
-        expect(subject.instance_eval {@sincedb['group2']}).to eq(now)
   
-      end           
-      
-    end
-  end
-
   describe '#process_log' do
-    context 'with an array in the config' do
+    context 'with an array in the config' do      
       subject {LogStash::Inputs::CloudWatch_Logs.new(config.merge({
         'start_position' => 0,
         'sincedb_path' => Dir.mktmpdir("rspec-")  + '/sincedb.txt'
         }))}
 
+      it 'check  default start time - beginning ' do
+        # given the config is for beginning
+        subject.instance_variable_set(:@start_position, 'beginning')
+
+        # then the default time is epoch start 
+        expect(subject.send(:get_default_start_time, *[])).to eq(0)
+      end
+
+      it 'check  default start time - end ' do
+        # given the config is for end
+        subject.instance_variable_set(:@start_position, 'end')
+
+        # then the default time nearly now 
+        now = DateTime.now.strftime('%Q').to_i
+        expect(subject.send(:get_default_start_time, *[])).to be_within(100).of(now)
+      end
+
+      it 'check  default start time - start position ' do
+        # given the config is for end
+        subject.instance_variable_set(:@start_position, '86400')
+
+        # then the default time nearly the expected  
+        now = DateTime.now.strftime('%Q').to_i
+        expected = now - 86400 * 1000
+        expect(subject.send(:get_default_start_time, *[])).to be_within(100).of(expected)
+      end      
+
       it 'process a log event - event is new' do
         subject.register
+        event_tracker = subject.instance_variable_get(:@event_tracker)
 
         # given these times
         old_timestamp = DateTime.now.strftime('%Q').to_i
         new_timestamp = old_timestamp + 1000
 
-        # given we know about this group and stream
+        # given we know about this group and stream from an old record
         group = 'groupA'      
-        subject.send(:set_sincedb_value, *['groupA', 'streamX', old_timestamp])
-        start_time, stream_positions = subject.send(:get_sincedb_group_values, *[group])
-
-
         # given we got the message for this group, for the known stream
         # and where the record is "new enough"
         log = Aws::CloudWatchLogs::Types::FilteredLogEvent.new()
         log.message = 'this be the verse'
-        log.timestamp = new_timestamp
+        log.timestamp = old_timestamp
         log.ingestion_time = 123
         log.log_stream_name = 'streamX'
+        log.event_id = 'event1'
+
+        event_tracker.record_processed_event(group, log)
+
+        # update this log to be a new event
+        log.timestamp = new_timestamp
+        log.event_id = 'event2'
 
         # when we send the log (assuming we have a queue)
         queue = []
         subject.instance_variable_set(:@queue, queue)
 
-        subject.send(:process_log, *[log, group, stream_positions])
+        subject.send(:process_log, *[log, group])
 
         # then a message was sent to the queue
         expect(queue.length).to eq(1)
@@ -345,191 +166,59 @@ describe LogStash::Inputs::CloudWatch_Logs do
         expect(queue[0].get('[cloudwatch_logs][ingestion_time]').to_iso8601).to eq('1970-01-01T00:00:00.123Z')
 
         # then the timestamp should have been updated
-        start_time, stream_positions = subject.send(:get_sincedb_group_values, *[group])
-        # and the new start time is 1 millisecond after the message time
-        expect(start_time).to eq(new_timestamp + 1)
-        expect(stream_positions).to eq({group + ':streamX' => new_timestamp + 1})   
-
+        start_time = event_tracker.min_time(group)
+        # and the new start time the earliest record
+        expect(start_time).to eq(old_timestamp)
       end
     
     
 
       it 'process a log event - event is old' do
         subject.register
+        event_tracker = subject.instance_variable_get(:@event_tracker)
 
         # given these times
         old_timestamp = DateTime.now.strftime('%Q').to_i
-        new_timestamp = old_timestamp - 1000
+        new_timestamp = old_timestamp + 1000
 
-        # given we know about this group and stream
-        group = 'groupA'      
-        subject.send(:set_sincedb_value, *[group, 'streamX', old_timestamp])
-        start_time, stream_positions = subject.send(:get_sincedb_group_values, *[group])
 
-        
+        puts("old_timestamp: #{old_timestamp}")
+        puts("new_timestamp: #{new_timestamp}")
 
-        # given we got the message for this group, for the known stream
-        # and where the record is "new enough"
+
+        # given we previously got the old record
+        group = 'GroupA'
         log = Aws::CloudWatchLogs::Types::FilteredLogEvent.new()
         log.message = 'this be the verse'
         log.timestamp = new_timestamp
         log.ingestion_time = 123
         log.log_stream_name = 'streamX'
+        log.event_id = 'eventA'
+        event_tracker.record_processed_event(group, log)
+
+        # given a new log message
+        log.timestamp = old_timestamp
+        log.event_id = 'eventB'
+
 
         # when we send the log (assuming we have a queue)
         queue = []
         subject.instance_variable_set(:@queue, queue)
 
-        subject.send(:process_log, *[log, group, stream_positions])
+        subject.send(:process_log, *[log, group])
 
         # then no message was sent to the queue
         expect(queue.length).to eq(0)
 
         # then the timestamp should not have been updated
-        start_time, stream_positions = subject.send(:get_sincedb_group_values, *[group])
+        start_time = event_tracker.min_time(group)
         # and the new start time is 1 millisecond after the message time
-        expect(start_time).to eq(old_timestamp)
-        expect(stream_positions).to eq({group + ':streamX' => old_timestamp})   
+        expect(start_time).to eq(new_timestamp)
+
       end    
     end
 
-    context 'with reload_last_moment set true' do
-      subject {LogStash::Inputs::CloudWatch_Logs.new(config.merge({
-        'start_position' => 0,
-        'sincedb_path' => Dir.mktmpdir("rspec-")  + '/sincedb.txt',
-        'reload_last_moment' => true
-        }))}
-
-      it 'process a log event - event is new' do
-        subject.register
-
-        # given these times
-        old_timestamp = 1
-        new_timestamp = 2
-
-        # given we know about this group and stream
-        group = 'groupA'      
-        subject.send(:set_sincedb_value, *['groupA', 'streamX', old_timestamp])
-        start_time, stream_positions = subject.send(:get_sincedb_group_values, *[group])
-
-
-        # given we got the message for this group, for the known stream
-        # and where the record is "new enough"
-        log = Aws::CloudWatchLogs::Types::FilteredLogEvent.new()
-        log.message = 'this be the verse'
-        log.timestamp = new_timestamp
-        log.ingestion_time = 123
-        log.log_stream_name = 'streamX'
-
-        # when we send the log (assuming we have a queue)
-        queue = []
-        subject.instance_variable_set(:@queue, queue)
-
-        subject.send(:process_log, *[log, group, stream_positions])
-
-        # then a message was sent to the queue
-        expect(queue.length).to eq(1)
-        expect(queue[0].get('[@timestamp]').to_iso8601).to eq('1970-01-01T00:00:00.002Z')
-        expect(queue[0].get('[message]')).to eq('this be the verse')
-        expect(queue[0].get('[cloudwatch_logs][log_group]')).to eq('groupA')
-        expect(queue[0].get('[cloudwatch_logs][log_stream]')).to eq('streamX')
-        expect(queue[0].get('[cloudwatch_logs][ingestion_time]').to_iso8601).to eq('1970-01-01T00:00:00.123Z')
-
-        # then the timestamp should have been updated
-        start_time, stream_positions = subject.send(:get_sincedb_group_values, *[group])
-        
-        # and the new start time is the message time
-        expect(start_time).to eq(new_timestamp)
-        expect(stream_positions).to eq({group + ':streamX' => new_timestamp})   
-
-      end
-
-
-      it 'process a log event - event is old - using last moment' do
-        subject.register
-
-        # given we got the message for this group, for the known stream
-        # and where the record is "new enough"
-        log = Aws::CloudWatchLogs::Types::FilteredLogEvent.new()
-        log.message = 'this be the verse'
-        log.timestamp = 1
-        log.ingestion_time = 123
-        log.log_stream_name = 'streamX'
-        log.event_id = "event1"
-
-        #  given we have  last moment event file with our event in there
-        reload_last_moment_path = subject.instance_variable_get(:@reload_last_moment_path)
-        File.open(reload_last_moment_path, 'w') { |file| file.write('{"groupA.streamX": {"timestamp": 1, "events" : ["event1"]}}') }
-        subject.send(:_sincedb_open)
-
-        # given we know about this group and stream
-        group = 'groupA'      
-        subject.send(:set_sincedb_value, *['groupA', 'streamX', log.timestamp])
-        start_time, stream_positions = subject.send(:get_sincedb_group_values, *[group])
-
-        # when we send the log (assuming we have a queue)
-        queue = []
-        subject.instance_variable_set(:@queue, queue)
-        subject.send(:process_log, *[log, group, stream_positions])
-
-        # then a message was not sent to the queue
-        expect(queue.length).to eq(0)
-
-      end      
-
-      it 'process a log event - mix of old and new events - using last moment' do
-        subject.register
-
-        # given we got the message for this group, for the known stream
-        # and where the record is "new enough"
-        logAlreadyLoaded = Aws::CloudWatchLogs::Types::FilteredLogEvent.new()
-        logAlreadyLoaded.message = 'this be the verse'
-        logAlreadyLoaded.timestamp = 1
-        logAlreadyLoaded.ingestion_time = 123
-        logAlreadyLoaded.log_stream_name = 'streamX'
-        logAlreadyLoaded.event_id = "event1"
-
-        logNewWithSameOldTime = Aws::CloudWatchLogs::Types::FilteredLogEvent.new()
-        logNewWithSameOldTime.message = 'this be the verse'
-        logNewWithSameOldTime.timestamp = 1
-        logNewWithSameOldTime.ingestion_time = 123
-        logNewWithSameOldTime.log_stream_name = 'streamX'
-        logNewWithSameOldTime.event_id = "event2"        
-
-        logCompletelyNew = Aws::CloudWatchLogs::Types::FilteredLogEvent.new()
-        logCompletelyNew.message = 'this be the verse'
-        logCompletelyNew.timestamp = 2
-        logCompletelyNew.ingestion_time = 123
-        logCompletelyNew.log_stream_name = 'streamX'
-        logCompletelyNew.event_id = "event3"        
-
-        #  given we have  last moment event file with our event in there
-        reload_last_moment_path = subject.instance_variable_get(:@reload_last_moment_path)
-        File.open(reload_last_moment_path, 'w') { |file| file.write('{"groupA.streamX": {"timestamp": 1, "events" : ["event1"]}}') }
-        subject.send(:_sincedb_open)
-
-        # given we know about this group and stream
-        group = 'groupA'      
-        subject.send(:set_sincedb_value, *['groupA', 'streamX', logAlreadyLoaded.timestamp])
-        start_time, stream_positions = subject.send(:get_sincedb_group_values, *[group])
-
-        # when we send the log (assuming we have a queue)
-        queue = []
-        subject.instance_variable_set(:@queue, queue)
-
-        subject.send(:process_log, *[logAlreadyLoaded, group, stream_positions])
-        subject.send(:process_log, *[logNewWithSameOldTime, group, stream_positions])
-        subject.send(:process_log, *[logCompletelyNew, group, stream_positions])
-
-        # then a message was not sent to the queue
-        expect(queue.length).to eq(2)
-        expect(queue[0].get('[cloudwatch_logs][event_id]')).to eq('event2')
-        expect(queue[1].get('[cloudwatch_logs][event_id]')).to eq('event3')
-
-        # then save the DBs
-        subject.send(:_sincedb_write)        
-      end      
-    end
+    
   end    
 
 end

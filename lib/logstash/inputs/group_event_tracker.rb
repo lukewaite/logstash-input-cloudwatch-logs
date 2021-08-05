@@ -24,8 +24,14 @@ class LogEventTracker
         ensure_group(group).record_processed_event(log_event)        
     end
 
+    # wipe any events older than the prune time (using the last records 
+    # in the window as the end time)
     def purge (group)
         ensure_group(group).purge
+    end
+
+    def min_time (group)
+        ensure_group(group).min_time
     end
 
     def save()
@@ -114,20 +120,31 @@ class GroupEventTracker
         @events_by_ms = {}
     end
 
+    def min_time
+        @min_time
+    end    
+
     # returns true if the event hasn't been processed yet
-    def is_new_event(log_event)
+    def is_new_event(log_event)       
+        puts("is_new_event: #{identify(log_event)} ->  #{log_event.timestamp}: #{@min_time} .. #{@max_time}") 
         # we've seen no records at all
         if @min_time.nil?
+            puts("NEW: no min time") 
             return true
         # the record is too old
         elsif log_event.timestamp < @min_time 
+            puts("OLD: log less than min time")             
             return false
         # so either the timestamp is new or the event is
         else 
             if !@events_by_ms.key?(log_event.timestamp) 
+                puts ("NEW: event timestamp not known in #{@events_by_ms}")
                 return true
             else
-                return !@events_by_ms[log_event.timestamp].include?( identify(log_event))
+                is_event_known = !@events_by_ms[log_event.timestamp].include?( identify(log_event))
+
+                puts ("event known? #{is_event_known}")  
+                return is_event_known              
             end
         end
     end
@@ -142,6 +159,8 @@ class GroupEventTracker
             @events_by_ms[log_event.timestamp] = []
         end
         @events_by_ms[log_event.timestamp].push(identify(log_event))
+
+        puts("After saving, model is: #{@min_time} .. #{@max_time}: #{@events_by_ms}")
     end    
 
     def purge ()

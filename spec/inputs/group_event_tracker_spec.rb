@@ -102,30 +102,46 @@ describe LogEventTracker do
       pathToFile = Dir.mktmpdir("rspec-")  + '/sincedb.txt'      
       puts("pathToFile => #{pathToFile}")
       tracker = LogEventTracker.new(pathToFile, purge_minutes)
-      File.open(pathToFile, 'w') { |file| file.write('{"groupA":{"1":["streamX:event1","streamY:event1"],"2":["streamX:event3"]},"groupB":{"3":["streamX:event4"]}}') }
 
-      # load the tracker
+      # write in some logs
+      log = Aws::CloudWatchLogs::Types::FilteredLogEvent.new()
+      log.timestamp = 1
+      log.log_stream_name = 'streamX'
+      log.event_id = 'event1'
+      tracker.record_processed_event("groupA", log)
+      tracker.record_processed_event("groupB", log)
+
+      log.timestamp = 2
+      log.log_stream_name = 'streamY'
+      log.event_id = 'event2'
+      tracker.record_processed_event("groupA", log)
+
+
+      # save them
+      tracker.save
+
+      # create a new tracker and reload the file
+      tracker = LogEventTracker.new(pathToFile, purge_minutes)
       tracker.load
 
       # now, get the group data out and check it
       group_tracker = tracker.send(:ensure_group, *['groupA'])
       group_data = group_tracker.instance_variable_get(:@events_by_ms)
 
-      expect(group_data[1]).to contain_exactly("streamX:event1","streamY:event1")
-      expect(group_data[2]).to contain_exactly("streamX:event3")
+      expect(group_data[1]).to contain_exactly("streamX:event1")
+      expect(group_data[2]).to contain_exactly("streamY:event2")
 
       expect(group_tracker.instance_variable_get(:@min_time)).to eq(1)
       expect(group_tracker.instance_variable_get(:@max_time)).to eq(2)
-
 
       # group b data
       group_tracker = tracker.send(:ensure_group, *['groupB'])
       group_data = group_tracker.instance_variable_get(:@events_by_ms)      
 
-      expect(group_data[3]).to contain_exactly("streamX:event4")
+      expect(group_data[1]).to contain_exactly("streamX:event1")
 
-      expect(group_tracker.instance_variable_get(:@min_time)).to eq(3)
-      expect(group_tracker.instance_variable_get(:@max_time)).to eq(3)            
+      expect(group_tracker.instance_variable_get(:@min_time)).to eq(1)
+      expect(group_tracker.instance_variable_get(:@max_time)).to eq(1)            
 
     end    
 
