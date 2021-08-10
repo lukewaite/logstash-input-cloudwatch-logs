@@ -216,6 +216,41 @@ describe LogStash::Inputs::CloudWatch_Logs do
         expect(start_time).to eq(new_timestamp)
 
       end    
+
+      it 'process a log event - event has already been seen' do
+        subject.register
+        event_tracker = subject.instance_variable_get(:@event_tracker)
+
+        # given these times
+        old_timestamp = DateTime.now.strftime('%Q').to_i
+
+
+        # given we previously got the old record
+        group = 'GroupA'
+        log = Aws::CloudWatchLogs::Types::FilteredLogEvent.new()
+        log.message = 'this be the verse'
+        log.timestamp = old_timestamp
+        log.ingestion_time = 123
+        log.log_stream_name = 'streamX'
+        log.event_id = 'eventA'
+        event_tracker.record_processed_event(group, log)
+
+
+        # when we send the log (assuming we have a queue)
+        queue = []
+        subject.instance_variable_set(:@queue, queue)
+
+        subject.send(:process_log, *[log, group])
+
+        # then no message was sent to the queue
+        expect(queue.length).to eq(0)
+
+        # then the timestamp should not have been updated
+        start_time = event_tracker.min_time(group)
+        # and the new start time is 1 millisecond after the message time
+        expect(start_time).to eq(old_timestamp)
+
+      end          
     end
 
     

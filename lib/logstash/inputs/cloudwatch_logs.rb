@@ -108,6 +108,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     @event_tracker = LogEventTracker.new(@sincedb_path, @prune_since_db_stream_minutes)
   end #def register
 
+
   public
   def check_start_position_validity
     raise LogStash::ConfigurationError, "No start_position specified!" unless @start_position
@@ -179,18 +180,14 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   def process_group(group)
     next_token = nil
     loop do
-      start_time = @event_tracker.min_time(group)
-      if start_time.nil?
-        start_time = get_default_start_time
-      end
-      
+      start_time = @event_tracker.get_or_set_min_time(group, get_default_start_time)
+
       params = {
           :log_group_name => group,
           :start_time => start_time,
           :interleaved => true,
           :next_token => next_token
       }      
-
       resp = @cloudwatch.filter_log_events(params)
     
       actually_processed_count = 0
@@ -209,6 +206,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     end
     @priority.delete(group)
     @priority << group
+
   end #def process_group
 
   # def process_log - returns true if the message was actually processed
@@ -218,6 +216,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     if @event_tracker.is_new_event(group, log)
       @logger.trace? && @logger.trace("Processing event")    
       @codec.decode(log.message.to_str) do |event|
+
         event.set("@timestamp", parse_time(log.timestamp))
         event.set("[cloudwatch_logs][ingestion_time]", parse_time(log.ingestion_time))
         event.set("[cloudwatch_logs][log_group]", group)

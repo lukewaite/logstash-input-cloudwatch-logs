@@ -1,5 +1,18 @@
 java_import org.apache.logging.log4j.LogManager
 
+#
+# Tracks if an event is new and stores this event.
+# The process is to maintain a window of N minutes in which every event is stored by 
+# millisecond, and stream/event id. 
+#
+# Events are "new" if they are after the beginning of this window, and if they are not 
+# already recorded in the window (as identified by the stream/event id)
+#
+# The window is purged once N minutes of events are processed (note, this is by
+# log event time). It is, therefore, and assumption that log events are processed
+# in as close to time order as possible (at least, within the N minute window).
+# This is an automatic consequence of the AWS filter_log_events method.
+#
 # In all cases log_event is one of the events from 
 # https://docs.aws.amazon.com/sdk-for-ruby/v2/api/Aws/CloudWatchLogs/Client.html#filter_log_events-instance_method
 class LogEventTracker
@@ -30,8 +43,8 @@ class LogEventTracker
         ensure_group(group).purge
     end
 
-    def min_time (group)
-        ensure_group(group).min_time
+    def min_time (group, default_time = nil)
+        return ensure_group(group).min_time(default_time)
     end
 
     def save()
@@ -103,8 +116,7 @@ class LogEventTracker
     
 
 end     
-# In all cases log_event is one of the events from 
-# https://docs.aws.amazon.com/sdk-for-ruby/v2/api/Aws/CloudWatchLogs/Client.html#filter_log_events-instance_method
+# Maintains the event window at the level of a single group
 class GroupEventTracker
     include LogStash::Util::Loggable
 
@@ -122,29 +134,30 @@ class GroupEventTracker
 
     def min_time
         @min_time
+    end
+    def get_or_set_min_time (default_time = nil)
+        
+        if @min_time.nil?
+            @min_time = default_time
+        end
+
+        min_time
     end    
 
     # returns true if the event hasn't been processed yet
     def is_new_event(log_event)       
-        puts("is_new_event: #{identify(log_event)} ->  #{log_event.timestamp}: #{@min_time} .. #{@max_time}") 
         # we've seen no records at all
         if @min_time.nil?
-            puts("NEW: no min time") 
             return true
         # the record is too old
         elsif log_event.timestamp < @min_time 
-            puts("OLD: log less than min time")             
             return false
         # so either the timestamp is new or the event is
         else 
             if !@events_by_ms.key?(log_event.timestamp) 
-                puts ("NEW: event timestamp not known in #{@events_by_ms}")
                 return true
             else
-                is_event_known = !@events_by_ms[log_event.timestamp].include?( identify(log_event))
-
-                puts ("event known? #{is_event_known}")  
-                return is_event_known              
+                return !@events_by_ms[log_event.timestamp].include?( identify(log_event))              
             end
         end
     end
@@ -159,8 +172,6 @@ class GroupEventTracker
             @events_by_ms[log_event.timestamp] = []
         end
         @events_by_ms[log_event.timestamp].push(identify(log_event))
-
-        puts("After saving, model is: #{@min_time} .. #{@max_time}: #{@events_by_ms}")
     end    
 
     def purge ()
