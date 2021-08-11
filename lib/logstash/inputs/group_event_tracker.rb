@@ -47,6 +47,10 @@ class LogEventTracker
         return ensure_group(group).min_time(default_time)
     end
 
+    def get_or_set_min_time(group, default_time = nil)
+        return ensure_group(group).get_or_set_min_time(default_time)
+    end
+
     def save()
         # build the json model
         save_data = {}
@@ -132,16 +136,21 @@ class GroupEventTracker
         @events_by_ms = {}
     end
 
-    def min_time
-        @min_time
+    def min_time(default_time = nil)
+        if @min_time.nil?
+            return default_time
+        end
+
+        return @min_time
     end
+
     def get_or_set_min_time (default_time = nil)
         
         if @min_time.nil?
             @min_time = default_time
         end
 
-        min_time
+        return @min_time
     end    
 
     # returns true if the event hasn't been processed yet
