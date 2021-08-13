@@ -8,6 +8,8 @@ require "stud/interval"
 require "aws-sdk"
 require "logstash/inputs/cloudwatch_logs/patch"
 require "fileutils"
+require 'logstash/inputs/group_event_tracker'
+
 
 Aws.eager_autoload!
 
@@ -36,6 +38,10 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   # sincedb files to some path matching "$HOME/.sincedb*"
   # Should be a path with filename not just a directory.
   config :sincedb_path, :validate => :string, :default => nil
+  # the stream data grows over time, so we drop it after a configurable time
+  # but only after a new value comes in for some group (i.e. we purge one group 
+  # at a time)
+  config :prune_since_db_stream_minutes, :validate => :number, :default => 60
 
   # Interval to wait between to check the file list again after a run is finished.
   # Value is in seconds.
@@ -44,11 +50,17 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   # Decide if log_group is a prefix or an absolute name
   config :log_group_prefix, :validate => :boolean, :default => false
 
+  # Decide if present, then the results of the log group query are filtered again
+  # to limit to these values. Only applicable if log_group_prefix = true 
+  config :log_group_suffix, :validate => :string, :list => true, :default => nil  
+  config :negate_log_group_suffix, :validate => :boolean, :default => false
+
   # When a new log group is encountered at initial plugin start (not already in
   # sincedb), allow configuration to specify where to begin ingestion on this group.
   # Valid options are: `beginning`, `end`, or an integer, representing number of
   # seconds before now to read back from.
   config :start_position, :default => 'beginning'
+  
 
 
   # def register
@@ -57,8 +69,6 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     require "digest/md5"
     @logger.debug("Registering cloudwatch_logs input", :log_group => @log_group)
     settings = defined?(LogStash::SETTINGS) ? LogStash::SETTINGS : nil
-    @sincedb = {}
-
     check_start_position_validity
 
     Aws::ConfigService::Client.new(aws_options_hash)
@@ -91,10 +101,13 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
       @sincedb_path = File.join(sincedb_dir, ".sincedb_" + Digest::MD5.hexdigest(@log_group.join(",")))
 
       @logger.info("No sincedb_path set, generating one based on the log_group setting",
-                   :sincedb_path => @sincedb_path, :log_group => @log_group)
+                   :sincedb_path => @sincedb_path, :log_group => @log_group)      
     end
-
+  
+    @logger.info("Using sincedb_path #{@sincedb_path}")
+    @event_tracker = LogEventTracker.new(@sincedb_path, @prune_since_db_stream_minutes)
   end #def register
+
 
   public
   def check_start_position_validity
@@ -111,8 +124,7 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   def run(queue)
     @queue = queue
     @priority = []
-    _sincedb_open
-    determine_start_position(find_log_groups, @sincedb)
+    @event_tracker.load()
 
     while !stop?
       begin
@@ -139,7 +151,12 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
       @log_group.each do |group|
         loop do
           log_groups = @cloudwatch.describe_log_groups(log_group_name_prefix: group, next_token: next_token)
-          groups += log_groups.log_groups.map {|n| n.log_group_name}
+          # if we have no suffix setting, or if the candidate group name ends with the suffix
+          # we use it
+          groups += log_groups.log_groups            
+            .select { |n| @log_group_suffix.nil?  || (n.log_group_name.end_with?(*@log_group_suffix) ^ @negate_log_group_suffix)}
+            .map {|n| n.log_group_name}
+          
           next_token = log_groups.next_token
           @logger.debug("found #{log_groups.log_groups.length} log groups matching prefix #{group}")
           break if next_token.nil?
@@ -158,67 +175,62 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     @priority.index(group) || -1
   end
 
-  public
-  def determine_start_position(groups, sincedb)
-    groups.each do |group|
-      if !sincedb.member?(group)
-        case @start_position
-          when 'beginning'
-            sincedb[group] = 0
-
-          when 'end'
-            sincedb[group] = DateTime.now.strftime('%Q')
-
-          else
-            sincedb[group] = DateTime.now.strftime('%Q').to_i - (@start_position * 1000)
-        end # case @start_position
-      end
-    end
-  end # def determine_start_position
 
   private
   def process_group(group)
     next_token = nil
     loop do
-      if !@sincedb.member?(group)
-        @sincedb[group] = 0
-      end
+      start_time = @event_tracker.get_or_set_min_time(group, get_default_start_time)
+
       params = {
           :log_group_name => group,
-          :start_time => @sincedb[group],
+          :start_time => start_time,
           :interleaved => true,
           :next_token => next_token
-      }
+      }      
       resp = @cloudwatch.filter_log_events(params)
-
+    
+      actually_processed_count = 0
       resp.events.each do |event|
-        process_log(event, group)
+        was_processed = process_log(event, group)
+        was_processed && actually_processed_count = actually_processed_count + 1
       end
 
-      _sincedb_write
+      resp.events.length() > 0 &&  @logger.debug("Queried logs for #{group} from #{parse_time(start_time)} found #{resp.events.length()} events, processed #{actually_processed_count}")
+      # prune old records before saving
+      @event_tracker.purge(group)
+      @event_tracker.save()
 
       next_token = resp.next_token
       break if next_token.nil?
     end
     @priority.delete(group)
     @priority << group
+
   end #def process_group
 
-  # def process_log
+  # def process_log - returns true if the message was actually processed
   private
   def process_log(log, group)
+    identity = identify(group, log.log_stream_name)        
+    if @event_tracker.is_new_event(group, log)
+      @logger.trace? && @logger.trace("Processing event")    
+      @codec.decode(log.message.to_str) do |event|
 
-    @codec.decode(log.message.to_str) do |event|
-      event.set("@timestamp", parse_time(log.timestamp))
-      event.set("[cloudwatch_logs][ingestion_time]", parse_time(log.ingestion_time))
-      event.set("[cloudwatch_logs][log_group]", group)
-      event.set("[cloudwatch_logs][log_stream]", log.log_stream_name)
-      event.set("[cloudwatch_logs][event_id]", log.event_id)
-      decorate(event)
+        event.set("@timestamp", parse_time(log.timestamp))
+        event.set("[cloudwatch_logs][ingestion_time]", parse_time(log.ingestion_time))
+        event.set("[cloudwatch_logs][log_group]", group)
+        event.set("[cloudwatch_logs][log_stream]", log.log_stream_name)
+        event.set("[cloudwatch_logs][event_id]", log.event_id)
+        decorate(event)
 
-      @queue << event
-      @sincedb[group] = log.timestamp + 1
+        @queue << event
+
+        @event_tracker.record_processed_event(group, log)
+        return true
+      end      
     end
+    return false
   end # def process_log
 
   # def parse_time
@@ -227,39 +239,31 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
     LogStash::Timestamp.at(data.to_i / 1000, (data.to_i % 1000) * 1000)
   end # def parse_time
 
-  private
-  def _sincedb_open
-    begin
-      File.open(@sincedb_path) do |db|
-        @logger.debug? && @logger.debug("_sincedb_open: reading from #{@sincedb_path}")
-        db.each do |line|
-          group, pos = line.split(" ", 2)
-          @logger.debug? && @logger.debug("_sincedb_open: setting #{group} to #{pos.to_i}")
-          @sincedb[group] = pos.to_i
-        end
-      end
-    rescue
-      #No existing sincedb to load
-      @logger.debug? && @logger.debug("_sincedb_open: error: #{@sincedb_path}: #{$!}")
-    end
-  end # def _sincedb_open
 
-  private
-  def _sincedb_write
-    begin
-      IO.write(@sincedb_path, serialize_sincedb, 0)
-    rescue Errno::EACCES
-      # probably no file handles free
-      # maybe it will work next time
-      @logger.debug? && @logger.debug("_sincedb_write: error: #{@sincedb_path}: #{$!}")
-    end
-  end # def _sincedb_write
-
-
-  private
-  def serialize_sincedb
-    @sincedb.map do |group, pos|
-      [group, pos].join(" ")
-    end.join("\n") + "\n"
+  private 
+  def identify(group, log_stream_name)
+    # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-logs-loggroup.html
+    # ':' isn't allowed in a log group name, so we can use it safely
+    return "#{group}:#{log_stream_name}"
   end
+
+  private
+  def is_stream_identifier(sincedb_name) 
+    return sincedb_name.include? ":"
+  end
+
+  private
+  def get_default_start_time()
+    # chose the start time based on the configs
+    case @start_position
+    when 'beginning'
+      return 0
+    when 'end'
+      return DateTime.now.strftime('%Q').to_i
+    else
+      return DateTime.now.strftime('%Q').to_i - (@start_position.to_i * 1000)
+    end # case @start_position    
+  end
+
+
 end # class LogStash::Inputs::CloudWatch_Logs

@@ -15,6 +15,9 @@ Optionally, you may set the `log_group_prefix` parameter to true
 which will scan for all log groups matching the specified prefix(s)
 and ingest all logs available in all of the matching groups.
 
+The optional `log_group_suffix` parameter will use the results of the above
+cloudwatch query and then filter them
+
 ## Usage
 
 ### Parameters
@@ -22,6 +25,7 @@ and ingest all logs available in all of the matching groups.
 |-----------|------------|----------|---------|
 | log_group | string or Array of strings | Yes | |
 | log_group_prefix | boolean | No | `false` |
+| log_group_suffix | string | No | |
 | start_position | `beginning`, `end`, or an Integer | No | `beginning` |
 | sincedb_path | string | No | `$HOME/.sincedb*` |
 | interval | number | No | 60 |
