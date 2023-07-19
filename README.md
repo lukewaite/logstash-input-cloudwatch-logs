@@ -7,6 +7,11 @@
 
 > Stream events from CloudWatch Logs.
 
+# Update July 2023
+Hello, this project has not received any maintenance since May of 2018. It is
+no longer a path I am using professionally, and I can not devote the time to
+maintaining it.
+
 ### Purpose
 Specify an individual log group or array of groups, and this plugin will scan
 all log streams in that group, and pull in any new log events.
