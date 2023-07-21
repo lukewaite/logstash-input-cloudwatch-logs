@@ -50,6 +50,9 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
   # seconds before now to read back from.
   config :start_position, :default => 'beginning'
 
+  # The filter pattern to use. For more information, see Filter and Pattern Syntax.
+  # If not provided, all the events are matched.
+  config :filter_pattern, :validate => :string, :default => ""
 
   # def register
   public
@@ -187,8 +190,10 @@ class LogStash::Inputs::CloudWatch_Logs < LogStash::Inputs::Base
           :log_group_name => group,
           :start_time => @sincedb[group],
           :interleaved => true,
-          :next_token => next_token
+          :next_token => next_token,
+          :filter_pattern => filter_pattern
       }
+
       resp = @cloudwatch.filter_log_events(params)
 
       resp.events.each do |event|
